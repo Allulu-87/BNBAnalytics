@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="BNB Analytics">
+  <rect width="512" height="512" rx="112" fill="#2a78d6"/>
+  <g stroke="#ffffff" stroke-width="44" stroke-linecap="round" fill="none">
+    <path d="M136 372V268"/>
+    <path d="M224 372V180"/>
+    <path d="M312 372V232"/>
+    <path d="M400 372V140"/>
+  </g>
+</svg>
