@@ -336,17 +336,29 @@ table.data tr.is-open { background: var(--surface-2); }
 /* ── Reservation detail drawer ───────────────────────────────────────────── */
 
 tr.detail-row > td { padding: 0; background: var(--surface-2); border-bottom: 1px solid var(--gridline); }
-.detail-box { padding: .7rem; }
+
+/* The detail cell is as wide as the whole reservations table, so a `100%` width
+   in here would inherit that width — which is why the editor used to need the
+   OUTER table's scrollbar. Size it against the viewport instead, and stick it to
+   the left edge so it stays put if the reservations table is scrolled sideways.
+   Anything that still overflows scrolls in the editor's own .table-scroll. */
+.detail-box {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
+  width: min(calc(100vw - 4rem), 1320px);
+  padding: .7rem;
+}
 
 /* ── per-booking charges: one table row per charge ──────────────────────── */
 
-/* Fixed layout at 100% width: this table always fits the open reservation, so
-   filling in a payment never involves a horizontal scroll. Percentages, not
-   pixels, so the columns shrink together instead of forcing an overflow. */
+/* Auto layout, so the charge name and the checkbox hug their content instead of
+   being stretched across a fixed share of the row (which left a wide gap between
+   the title and the amount). Notes absorb whatever is left over. */
 table.charge-table {
   width: 100%;
   min-width: 0;
-  table-layout: fixed;
+  table-layout: auto;
 }
 table.charge-table th,
 table.charge-table td {
@@ -359,11 +371,13 @@ table.charge-table td:first-child { padding-left: 0; }
 table.charge-table th:last-child,
 table.charge-table td:last-child { padding-right: 0; }
 
-table.charge-table .c-name { width: 26%; }
+/* `width: 1%` + nowrap is the shrink-to-fit idiom for an auto-layout table:
+   the column ends up exactly as wide as its content needs. */
+table.charge-table .c-name { width: 1%; white-space: nowrap; }
 table.charge-table .c-amount { width: 17%; }
-table.charge-table .c-date { width: 26%; }
-table.charge-table .c-note { width: 21%; }
-table.charge-table .c-paid { width: 10%; text-align: center; }
+table.charge-table .c-date { width: 25%; }
+table.charge-table .c-note { width: 30%; }
+table.charge-table .c-paid { width: 1%; white-space: nowrap; text-align: center; }
 
 table.charge-table .c-name strong { display: block; font-size: .8rem; line-height: 1.25; }
 table.charge-table .c-name .hint { display: none; }      /* no room until wider */
