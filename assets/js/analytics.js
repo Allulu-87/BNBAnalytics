@@ -34,75 +34,119 @@ window.App = window.App || {};
 
   /* ── headline totals ──────────────────────────────────────────────────── */
 
+  /**
+   * Headline totals.
+   *
+   * Only costs whose payment has been processed are deducted. A cost that has
+   * been recorded but not paid is "pending": it is reported separately and
+   * leaves the earnings untouched until it is ticked off. So:
+   *   net               = earnings − deducted
+   *   netAfterPending   = earnings − deducted − pending
+   */
   An.summary = function (f) {
     var rw = resWhere(f);
     var r = DB.one(
       'SELECT COUNT(*) AS bookings, IFNULL(SUM(earnings),0) AS earnings,' +
-      ' IFNULL(SUM(nights),0) AS nights, IFNULL(SUM(cost_total),0) AS bookingCosts,' +
+      ' IFNULL(SUM(nights),0) AS nights,' +
+      ' IFNULL(SUM(cost_total),0) AS bookingCommitted,' +
+      ' IFNULL(SUM(cost_paid),0) AS bookingPaid,' +
       ' IFNULL(SUM(cost_unpaid),0) AS bookingUnpaid' +
       ' FROM v_reservations' + rw.sql, rw.params) || {};
 
     var ew = expWhere(f);
     var e = DB.one(
       'SELECT IFNULL(SUM(amount),0) AS total,' +
+      ' IFNULL(SUM(CASE WHEN is_paid = 1 THEN amount ELSE 0 END),0) AS paid,' +
       ' IFNULL(SUM(CASE WHEN is_paid = 0 THEN amount ELSE 0 END),0) AS unpaid,' +
       ' COUNT(*) AS n FROM expenses' + ew.sql, ew.params) || {};
 
     var earnings = r.earnings || 0;
-    var bookingCosts = r.bookingCosts || 0;
-    var expenses = e.total || 0;
-    var totalCosts = bookingCosts + expenses;
+    var bookingPaid = r.bookingPaid || 0;
+    var expensesPaid = e.paid || 0;
+    var deducted = bookingPaid + expensesPaid;
+    var pending = (r.bookingUnpaid || 0) + (e.unpaid || 0);
+    var net = earnings - deducted;
 
     return {
       bookings: r.bookings || 0,
       nights: r.nights || 0,
       earnings: earnings,
-      bookingCosts: bookingCosts,
-      expenses: expenses,
-      expenseCount: e.n || 0,
-      totalCosts: totalCosts,
-      net: earnings - totalCosts,
-      unpaid: (r.bookingUnpaid || 0) + (e.unpaid || 0),
+
+      // deducted (processed) — what actually reduced the profit
+      bookingCosts: bookingPaid,
+      expenses: expensesPaid,
+      totalCosts: deducted,
+      deducted: deducted,
+
+      // committed but not yet processed
+      pending: pending,
+      unpaid: pending,
       unpaidBooking: r.bookingUnpaid || 0,
       unpaidExpenses: e.unpaid || 0,
-      margin: earnings ? (earnings - totalCosts) / earnings : 0,
+
+      // full commitments, paid or not
+      bookingCommitted: r.bookingCommitted || 0,
+      expensesCommitted: e.total || 0,
+      committed: (r.bookingCommitted || 0) + (e.total || 0),
+
+      expenseCount: e.n || 0,
+      net: net,
+      netAfterPending: net - pending,
+      margin: earnings ? net / earnings : 0,
       perNight: r.nights ? earnings / r.nights : 0,
-      netPerNight: r.nights ? (earnings - totalCosts) / r.nights : 0,
+      netPerNight: r.nights ? net / r.nights : 0,
       avgBooking: r.bookings ? earnings / r.bookings : 0
     };
   };
 
   /* ── monthly / yearly series ──────────────────────────────────────────── */
 
+  /* Period buckets. `costs` counts only processed payments, matching An.summary;
+     `pending` is what is still committed against that period. */
   function bucket(f, len) {
     var rw = resWhere(f);
     var res = DB.all(
       'SELECT substr(' + (f.basis || 'start_date') + ',1,' + len + ') AS k,' +
-      ' IFNULL(SUM(earnings),0) AS earnings, IFNULL(SUM(cost_total),0) AS bookingCosts,' +
+      ' IFNULL(SUM(earnings),0) AS earnings,' +
+      ' IFNULL(SUM(cost_paid),0) AS bookingCosts,' +
+      ' IFNULL(SUM(cost_unpaid),0) AS bookingPending,' +
       ' IFNULL(SUM(nights),0) AS nights, COUNT(*) AS bookings' +
       ' FROM v_reservations' + rw.sql +
       ' GROUP BY k HAVING k IS NOT NULL', rw.params);
 
     var ew = expWhere(f);
     var exp = DB.all(
-      'SELECT substr(expense_date,1,' + len + ') AS k, IFNULL(SUM(amount),0) AS expenses' +
+      'SELECT substr(expense_date,1,' + len + ') AS k,' +
+      ' IFNULL(SUM(CASE WHEN is_paid = 1 THEN amount ELSE 0 END),0) AS expenses,' +
+      ' IFNULL(SUM(CASE WHEN is_paid = 0 THEN amount ELSE 0 END),0) AS expensesPending' +
       ' FROM expenses' + ew.sql + ' GROUP BY k HAVING k IS NOT NULL', ew.params);
 
     var by = {};
     function slot(k) {
-      if (!by[k]) by[k] = { k: k, earnings: 0, bookingCosts: 0, expenses: 0, nights: 0, bookings: 0 };
+      if (!by[k]) {
+        by[k] = {
+          k: k, earnings: 0, bookingCosts: 0, expenses: 0,
+          bookingPending: 0, expensesPending: 0, nights: 0, bookings: 0
+        };
+      }
       return by[k];
     }
     res.forEach(function (r) {
       var s = slot(r.k);
       s.earnings = r.earnings; s.bookingCosts = r.bookingCosts;
+      s.bookingPending = r.bookingPending;
       s.nights = r.nights; s.bookings = r.bookings;
     });
-    exp.forEach(function (r) { slot(r.k).expenses = r.expenses; });
+    exp.forEach(function (r) {
+      var s = slot(r.k);
+      s.expenses = r.expenses;
+      s.expensesPending = r.expensesPending;
+    });
 
     Object.keys(by).forEach(function (k) {
       var s = by[k];
-      s.costs = s.bookingCosts + s.expenses;
+      s.costs = s.bookingCosts + s.expenses;          // processed only
+      s.pending = s.bookingPending + s.expensesPending;
       s.net = s.earnings - s.costs;
     });
     return by;
@@ -121,7 +165,11 @@ window.App = window.App || {};
     var months = U.monthsBetween(from.slice(0, 7) + '-01', to.slice(0, 7) + '-28');
     if (!months.length) months = keys;
     return months.map(function (m) {
-      return by[m] || { k: m, earnings: 0, bookingCosts: 0, expenses: 0, costs: 0, net: 0, nights: 0, bookings: 0 };
+      return by[m] || {
+        k: m, earnings: 0, bookingCosts: 0, expenses: 0, costs: 0,
+        bookingPending: 0, expensesPending: 0, pending: 0,
+        net: 0, nights: 0, bookings: 0
+      };
     });
   };
 
@@ -141,19 +189,21 @@ window.App = window.App || {};
     var rw = resWhere(f, 'r.');
     DB.all(
       'SELECT bc.kind AS k, SUM(bc.amount) AS amt,' +
+      ' SUM(CASE WHEN bc.is_paid = 1 THEN bc.amount ELSE 0 END) AS paid,' +
       ' SUM(CASE WHEN bc.is_paid = 0 THEN bc.amount ELSE 0 END) AS unpaid, COUNT(*) AS n' +
       ' FROM booking_charges bc JOIN reservations r ON r.id = bc.reservation_id' +
       rw.sql + ' GROUP BY bc.kind', rw.params
     ).forEach(function (r) {
       out.push({
         label: kindLabel[r.k] || r.k, group: 'Per booking',
-        value: r.amt || 0, unpaid: r.unpaid || 0, n: r.n
+        value: r.amt || 0, paid: r.paid || 0, unpaid: r.unpaid || 0, n: r.n
       });
     });
 
     var ew = expWhere(f);
     DB.all(
       'SELECT category, IFNULL(detail, \'\') AS detail, SUM(amount) AS amt,' +
+      ' SUM(CASE WHEN is_paid = 1 THEN amount ELSE 0 END) AS paid,' +
       ' SUM(CASE WHEN is_paid = 0 THEN amount ELSE 0 END) AS unpaid, COUNT(*) AS n' +
       ' FROM expenses' + ew.sql +
       ' GROUP BY category, CASE WHEN category = \'Other\' THEN IFNULL(detail, \'\') ELSE \'\' END',
@@ -162,7 +212,7 @@ window.App = window.App || {};
       var label = (r.category === 'Other' && r.detail) ? 'Other — ' + r.detail : r.category;
       out.push({
         label: label, group: 'Anytime',
-        value: r.amt || 0, unpaid: r.unpaid || 0, n: r.n
+        value: r.amt || 0, paid: r.paid || 0, unpaid: r.unpaid || 0, n: r.n
       });
     });
 

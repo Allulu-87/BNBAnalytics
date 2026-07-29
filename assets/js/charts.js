@@ -127,6 +127,23 @@ window.App = window.App || {};
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
 
+  /** Usable width for a chart. Walks up if the host hasn't been laid out yet. */
+  function hostWidth(host) {
+    var n = host, w = 0;
+    while (n && !w) {
+      w = n.clientWidth || 0;
+      n = n.parentNode && n.parentNode.nodeType === 1 ? n.parentNode : null;
+    }
+    return Math.max(260, w || 700);
+  }
+
+  /** Band width that respects the ideal range but never overflows `avail`. */
+  function fitBands(min, ideal, max, avail, count) {
+    var w = Math.floor(Math.min(Math.max(min, ideal), max));
+    if (w * count > avail) w = Math.floor(avail / count);
+    return Math.max(1, w);
+  }
+
   /* ── legend (identity is never color-alone) ───────────────────────────── */
 
   C.legend = function (series) {
@@ -155,19 +172,21 @@ window.App = window.App || {};
       return;
     }
 
-    var padL = 62, padR = 14, padT = 10, axisBand = 30;
-    var plotH = 230;
+    var box = hostWidth(host);
+    var padL = box < 430 ? 40 : 62, padR = 12, padT = 10, axisBand = 30;
+    var plotH = box < 430 ? 190 : 230;
 
     var nS = series.length;
-    var avail = Math.max(320, host.clientWidth || host.parentNode.clientWidth || 720) - padL - padR;
+    var avail = Math.max(140, box - padL - padR);
 
     /* Size bars from the per-band budget, then cap the band itself: without the
        cap a two-month chart flings its groups to opposite edges; with it the
-       plot stays compact and gets centred below. */
+       plot stays compact and gets centred below. fitBands() then guarantees the
+       whole plot fits its container, because this app never scrolls sideways. */
     var bandBudget = avail / labels.length;
-    var barW = Math.max(4, Math.min(BAR_MAX, Math.floor((bandBudget - 10) / nS) - BAR_GAP));
+    var barW = Math.max(2, Math.min(BAR_MAX, Math.floor((bandBudget - 6) / nS) - BAR_GAP));
     var groupW = nS * barW + (nS - 1) * BAR_GAP;
-    var bandW = Math.floor(Math.min(Math.max(groupW + 10, bandBudget), groupW + 56));
+    var bandW = fitBands(groupW + 4, bandBudget, groupW + 56, avail, labels.length);
     var plotW = bandW * labels.length;
     var W = padL + plotW + padR;
     var H = padT + plotH + axisBand;
@@ -292,13 +311,14 @@ window.App = window.App || {};
       return;
     }
 
-    var padL = 62, padR = 14, padT = 10, axisBand = 30;
-    var plotH = 240;
+    var box = hostWidth(host);
+    var padL = box < 430 ? 40 : 62, padR = 12, padT = 10, axisBand = 30;
+    var plotH = box < 430 ? 200 : 240;
 
-    var avail = Math.max(320, host.clientWidth || host.parentNode.clientWidth || 720) - padL - padR;
+    var avail = Math.max(140, box - padL - padR);
     var bandBudget = avail / labels.length;
-    var barW = Math.max(3, Math.min(BAR_MAX, Math.floor(bandBudget - 8)));
-    var bandW = Math.floor(Math.min(Math.max(barW + 8, bandBudget), barW + 44));
+    var barW = Math.max(2, Math.min(BAR_MAX, Math.floor(bandBudget - 5)));
+    var bandW = fitBands(barW + 3, bandBudget, barW + 44, avail, labels.length);
     var plotW = bandW * labels.length;
     var W = padL + plotW + padR;
     var H = padT + plotH + axisBand;
@@ -413,11 +433,15 @@ window.App = window.App || {};
     var color = data.color || cssVar('--series-1');
     var muted = cssVar('--text-muted'), grid = cssVar('--gridline'), ink = cssVar('--text-secondary');
 
-    var rowH = 26, barH = Math.min(BAR_MAX, 16);
+    var W = hostWidth(host);
+    var rowH = W < 430 ? 30 : 26, barH = Math.min(BAR_MAX, 16);
     var padT = 6, padB = 6;
-    var labelW = 150, valueW = 92, padR = 8;
-    var W = Math.max(320, host.clientWidth || host.parentNode.clientWidth || 640);
-    var plotW = Math.max(80, W - labelW - valueW - padR);
+    // labels and the value column have to shrink with the viewport, or the
+    // bars get squeezed to nothing on a phone
+    var labelW = W < 430 ? Math.round(W * 0.38) : 150;
+    var valueW = W < 430 ? 64 : 92;
+    var padR = 8;
+    var plotW = Math.max(40, W - labelW - valueW - padR);
     var H = padT + items.length * rowH + padB;
 
     var max = 0;
@@ -446,7 +470,11 @@ window.App = window.App || {};
         x: labelW - 10, y: by + barH / 2 + 3.7, 'text-anchor': 'end',
         fill: ink, 'font-size': 11.5
       });
-      t.textContent = it.label.length > 24 ? it.label.slice(0, 23) + '…' : it.label;
+      // truncate to what the label gutter can actually hold at this width
+      var maxChars = Math.max(7, Math.floor((labelW - 14) / 6.1));
+      t.textContent = it.label.length > maxChars
+        ? it.label.slice(0, maxChars - 1) + '…'
+        : it.label;
 
       var d = rowPath(by, barH, labelW, x(it.value));
       if (d) add(svg, 'path', { d: d, fill: color });
@@ -476,7 +504,9 @@ window.App = window.App || {};
     });
   };
 
-  /** Build the table-view twin every chart is required to have. */
+  /** Build the table-view twin every chart is required to have.
+      Each cell carries data-label so the mobile stylesheet can reflow the
+      table into stacked cards rather than scrolling it sideways. */
   C.table = function (head, rows, foot) {
     var t = U.el('table', { class: 'data' });
     var thead = U.el('thead');
@@ -484,18 +514,23 @@ window.App = window.App || {};
       return U.el('th', { class: i ? 'num' : '', text: h });
     })));
     t.appendChild(thead);
+
+    var cell = function (c, i) {
+      return U.el('td', {
+        class: i ? 'num' : '',
+        'data-label': head[i] == null ? '' : String(head[i]),
+        text: c
+      });
+    };
+
     var tb = U.el('tbody');
     rows.forEach(function (r) {
-      tb.appendChild(U.el('tr', null, r.map(function (c, i) {
-        return U.el('td', { class: i ? 'num' : '', text: c });
-      })));
+      tb.appendChild(U.el('tr', null, r.map(cell)));
     });
     t.appendChild(tb);
     if (foot) {
       var tf = U.el('tfoot');
-      tf.appendChild(U.el('tr', null, foot.map(function (c, i) {
-        return U.el('td', { class: i ? 'num' : '', text: c });
-      })));
+      tf.appendChild(U.el('tr', null, foot.map(cell)));
       t.appendChild(tf);
     }
     return U.el('div', { class: 'table-scroll' }, [t]);

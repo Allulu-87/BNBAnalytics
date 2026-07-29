@@ -85,16 +85,27 @@ window.App.Views = window.App.Views || {};
       }));
     kpi.appendChild(tile('Total earnings', U.fmtMoneyTile(s.earnings),
       s.bookings + ' booking' + (s.bookings === 1 ? '' : 's') + ' · ' + s.nights + ' nights'));
-    kpi.appendChild(tile('Per-booking costs', U.fmtMoneyTile(s.bookingCosts),
-      'Watchman, tips, water, fruits'));
-    kpi.appendChild(tile('Anytime expenses', U.fmtMoneyTile(s.expenses),
-      s.expenseCount + ' entr' + (s.expenseCount === 1 ? 'y' : 'ies')));
-    kpi.appendChild(tile('Still to pay', U.fmtMoneyTile(s.unpaid),
-      U.fmtMoney(s.unpaidBooking, 2) + ' booking · ' + U.fmtMoney(s.unpaidExpenses, 2) + ' bills',
-      { neg: s.unpaid > 0 }));
+    kpi.appendChild(tile('Per-booking paid', U.fmtMoneyTile(s.bookingCosts),
+      s.unpaidBooking > 0.0005
+        ? U.fmtMoney(s.unpaidBooking, 2) + ' more not deducted yet'
+        : 'Watchman, tips, water, fruits'));
+    kpi.appendChild(tile('Bills paid', U.fmtMoneyTile(s.expenses),
+      s.unpaidExpenses > 0.0005
+        ? U.fmtMoney(s.unpaidExpenses, 2) + ' more not deducted yet'
+        : s.expenseCount + ' entr' + (s.expenseCount === 1 ? 'y' : 'ies')));
+    kpi.appendChild(tile('Pending — not deducted', U.fmtMoneyTile(s.pending),
+      s.pending > 0.0005
+        ? 'Net would be ' + U.fmtMoney(s.netAfterPending, 2) + ' once paid'
+        : 'Everything recorded is paid',
+      { neg: s.pending > 0 }));
     kpi.appendChild(tile('Avg earnings / night', U.fmtMoneyTile(s.perNight),
       'Avg booking ' + U.fmtMoney(s.avgBooking, 2)));
     root.appendChild(kpi);
+
+    root.appendChild(U.el('p', { class: 'small muted', style: 'margin:-.35rem 0 1rem' }, [
+      'Only costs marked as processed are deducted — anything recorded but unpaid ' +
+      'is shown as pending and leaves the earnings untouched.'
+    ]));
 
     /* ── monthly performance ────────────────────────────────────────────── */
 
@@ -103,7 +114,7 @@ window.App.Views = window.App.Views || {};
     var mHead = U.el('div', { class: 'card-head' }, [
       U.el('div', null, [
         U.el('h2', { text: 'Monthly performance' }),
-        U.el('p', { text: 'Earnings, total costs and net profit by month, in ' + U.currency + '.' })
+        U.el('p', { text: 'Earnings, costs actually paid, and net profit by month, in ' + U.currency + '.' })
       ]),
       U.el('div', { class: 'spacer' }),
       toggle('monthly', function () { App.Views.dashboard(root); })
@@ -112,7 +123,7 @@ window.App.Views = window.App.Views || {};
 
     var mSeries = [
       { label: 'Earnings', color: col.s1, values: months.map(function (m) { return m.earnings; }) },
-      { label: 'Total costs', color: col.s2, values: months.map(function (m) { return m.costs; }) },
+      { label: 'Costs paid', color: col.s2, values: months.map(function (m) { return m.costs; }) },
       { label: 'Net profit', color: col.s3, values: months.map(function (m) { return m.net; }) }
     ];
 
@@ -130,16 +141,17 @@ window.App.Views = window.App.Views || {};
       });
     } else {
       monthCard.appendChild(Charts.table(
-        ['Month', 'Bookings', 'Nights', 'Earnings', 'Booking costs', 'Expenses', 'Total costs', 'Net profit'],
+        ['Month', 'Bookings', 'Nights', 'Earnings', 'Booking paid', 'Bills paid', 'Costs paid', 'Net profit', 'Pending'],
         months.map(function (m) {
           return [U.monthLabel(m.k), m.bookings, m.nights, U.fmtNum(m.earnings, 2),
-            U.fmtNum(m.bookingCosts, 2), U.fmtNum(m.expenses, 2), U.fmtNum(m.costs, 2), U.fmtNum(m.net, 2)];
+            U.fmtNum(m.bookingCosts, 2), U.fmtNum(m.expenses, 2), U.fmtNum(m.costs, 2),
+            U.fmtNum(m.net, 2), U.fmtNum(m.pending, 2)];
         }),
         ['Total',
           months.reduce(function (a, m) { return a + m.bookings; }, 0),
           months.reduce(function (a, m) { return a + m.nights; }, 0),
           U.fmtNum(s.earnings, 2), U.fmtNum(s.bookingCosts, 2), U.fmtNum(s.expenses, 2),
-          U.fmtNum(s.totalCosts, 2), U.fmtNum(s.net, 2)]
+          U.fmtNum(s.totalCosts, 2), U.fmtNum(s.net, 2), U.fmtNum(s.pending, 2)]
       ));
     }
     root.appendChild(monthCard);
@@ -153,7 +165,7 @@ window.App.Views = window.App.Views || {};
     costCard.appendChild(U.el('div', { class: 'card-head' }, [
       U.el('div', null, [
         U.el('h2', { text: 'Where the money goes' }),
-        U.el('p', { text: 'Every cost line in this period, largest first.' })
+        U.el('p', { text: 'Every cost line in this period, largest first — recorded amounts, paid or not.' })
       ]),
       U.el('div', { class: 'spacer' }),
       toggle('costs', function () { App.Views.dashboard(root); })
@@ -172,9 +184,11 @@ window.App.Views = window.App.Views || {};
       });
     } else {
       costCard.appendChild(Charts.table(
-        ['Cost', 'Type', 'Entries', 'Amount', 'Unpaid'],
-        costs.map(function (c) { return [c.label, c.group, c.n, U.fmtNum(c.value, 2), U.fmtNum(c.unpaid, 2)]; }),
-        ['Total', '', '', U.fmtNum(s.totalCosts, 2), U.fmtNum(s.unpaid, 2)]
+        ['Cost', 'Type', 'Entries', 'Recorded', 'Paid', 'Pending'],
+        costs.map(function (c) {
+          return [c.label, c.group, c.n, U.fmtNum(c.value, 2), U.fmtNum(c.paid, 2), U.fmtNum(c.unpaid, 2)];
+        }),
+        ['Total', '', '', U.fmtNum(s.committed, 2), U.fmtNum(s.deducted, 2), U.fmtNum(s.pending, 2)]
       ));
     }
     grid.appendChild(costCard);
@@ -188,13 +202,14 @@ window.App.Views = window.App.Views || {};
       ])
     ]));
     yCard.appendChild(Charts.table(
-      ['Year', 'Bookings', 'Nights', 'Earnings', 'Costs', 'Net profit', 'Margin'],
+      ['Year', 'Bookings', 'Nights', 'Earnings', 'Costs paid', 'Net profit', 'Margin', 'Pending'],
       years.map(function (y) {
         return [y.k, y.bookings, y.nights, U.fmtNum(y.earnings, 2), U.fmtNum(y.costs, 2),
-          U.fmtNum(y.net, 2), (y.earnings ? U.fmtNum(y.net / y.earnings * 100, 1) : '0.0') + '%'];
+          U.fmtNum(y.net, 2), (y.earnings ? U.fmtNum(y.net / y.earnings * 100, 1) : '0.0') + '%',
+          U.fmtNum(y.pending, 2)];
       }),
       ['All', s.bookings, s.nights, U.fmtNum(s.earnings, 2), U.fmtNum(s.totalCosts, 2),
-        U.fmtNum(s.net, 2), U.fmtNum(s.margin * 100, 1) + '%']
+        U.fmtNum(s.net, 2), U.fmtNum(s.margin * 100, 1) + '%', U.fmtNum(s.pending, 2)]
     ));
     grid.appendChild(yCard);
     root.appendChild(grid);
@@ -212,11 +227,11 @@ window.App.Views = window.App.Views || {};
         ])
       ]));
       lCard.appendChild(Charts.table(
-        ['Listing', 'Bookings', 'Nights', 'Earnings', 'Costs', 'Net profit', 'Margin'],
+        ['Listing', 'Bookings', 'Nights', 'Earnings', 'Costs paid', 'Net profit', 'Margin', 'Pending'],
         byL.map(function (r) {
           return [r.name, r.s.bookings, r.s.nights, U.fmtNum(r.s.earnings, 2),
             U.fmtNum(r.s.totalCosts, 2), U.fmtNum(r.s.net, 2),
-            U.fmtNum(r.s.margin * 100, 1) + '%'];
+            U.fmtNum(r.s.margin * 100, 1) + '%', U.fmtNum(r.s.pending, 2)];
         })
       ));
       root.appendChild(lCard);
@@ -230,7 +245,10 @@ window.App.Views = window.App.Views || {};
       dCard.appendChild(U.el('div', { class: 'card-head' }, [
         U.el('div', null, [
           U.el('h2', { text: 'Not paid yet' }),
-          U.el('p', { text: due.length + ' item' + (due.length === 1 ? '' : 's') + ' totalling ' + U.fmtMoney(s.unpaid, 2) + '.' })
+          U.el('p', {
+            text: due.length + ' item' + (due.length === 1 ? '' : 's') + ' totalling ' +
+              U.fmtMoney(s.pending, 2) + ' — none of it deducted from profit yet.'
+          })
         ])
       ]));
       dCard.appendChild(Charts.table(
@@ -238,7 +256,7 @@ window.App.Views = window.App.Views || {};
         due.slice(0, 60).map(function (d) {
           return [d.what, d.who, d.listing, U.prettyDate(d.date), U.fmtNum(d.amount, 2)];
         }),
-        due.length > 60 ? ['Showing 60 of ' + due.length, '', '', '', U.fmtNum(s.unpaid, 2)] : null
+        due.length > 60 ? ['Showing 60 of ' + due.length, '', '', '', U.fmtNum(s.pending, 2)] : null
       ));
       root.appendChild(dCard);
     }

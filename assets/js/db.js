@@ -88,16 +88,26 @@ window.App = window.App || {};
     "CREATE INDEX IF NOT EXISTS ix_exp_date ON expenses(expense_date);",
     "CREATE INDEX IF NOT EXISTS ix_exp_cat ON expenses(category);",
 
+    /* Views are derived, so they are always rebuilt rather than left at an
+       older definition on a database created by a previous version. Drop the
+       dependent view first. */
+    "DROP VIEW IF EXISTS v_reservations;",
+    "DROP VIEW IF EXISTS v_booking_costs;",
+
     /* Per-booking cost rollup */
-    "CREATE VIEW IF NOT EXISTS v_booking_costs AS " +
+    "CREATE VIEW v_booking_costs AS " +
     "SELECT reservation_id," +
     "  SUM(amount) AS cost_total," +
     "  SUM(CASE WHEN is_paid = 1 THEN amount ELSE 0 END) AS cost_paid," +
     "  SUM(CASE WHEN is_paid = 0 THEN amount ELSE 0 END) AS cost_unpaid " +
     "FROM booking_charges GROUP BY reservation_id;",
 
-    /* One row per reservation with costs and net already resolved */
-    "CREATE VIEW IF NOT EXISTS v_reservations AS " +
+    /* One row per reservation with costs and net already resolved.
+       `net` deducts ONLY charges whose payment has actually been processed —
+       an amount that has been entered but not yet paid leaves the earnings
+       untouched. `cost_pending` is that committed-but-not-yet-deducted money,
+       and `net_after_pending` is what the net becomes once it is all settled. */
+    "CREATE VIEW v_reservations AS " +
     "SELECT r.id, r.confirmation_code, r.listing_id, l.name AS listing_name," +
     "  r.status, r.guest_name, r.contact," +
     "  r.adults, r.children, r.infants," +
@@ -107,7 +117,9 @@ window.App = window.App || {};
     "  COALESCE(c.cost_total, 0)  AS cost_total," +
     "  COALESCE(c.cost_paid, 0)   AS cost_paid," +
     "  COALESCE(c.cost_unpaid, 0) AS cost_unpaid," +
-    "  r.earnings - COALESCE(c.cost_total, 0) AS net," +
+    "  COALESCE(c.cost_unpaid, 0) AS cost_pending," +
+    "  r.earnings - COALESCE(c.cost_paid, 0) AS net," +
+    "  r.earnings - COALESCE(c.cost_total, 0) AS net_after_pending," +
     "  CASE WHEN r.nights > 0 THEN r.earnings / r.nights ELSE 0 END AS per_night " +
     "FROM reservations r " +
     "JOIN listings l ON l.id = r.listing_id " +
@@ -377,10 +389,12 @@ window.App = window.App || {};
         ' OR listing_name LIKE ?)');
       var like = '%' + f.q + '%'; p.push(like, like, like, like);
     }
+    // whitelist, because f.sort is interpolated into the SQL rather than bound
     var order = ({
       start_date: 'start_date', end_date: 'end_date', booked_date: 'booked_date',
       earnings: 'earnings', net: 'net', nights: 'nights', guest_name: 'guest_name',
-      listing_name: 'listing_name', cost_total: 'cost_total', status: 'status',
+      listing_name: 'listing_name', cost_total: 'cost_total', cost_paid: 'cost_paid',
+      cost_pending: 'cost_pending', cost_unpaid: 'cost_unpaid', status: 'status',
       confirmation_code: 'confirmation_code'
     })[f.sort] || 'start_date';
     var dir = f.dir === 'asc' ? 'ASC' : 'DESC';

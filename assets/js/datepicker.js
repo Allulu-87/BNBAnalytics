@@ -22,6 +22,17 @@ window.App = window.App || {};
 
   var ALT_FORMAT = 'j M Y';   // "6 Aug 2026" — same shape as U.prettyDate
 
+  /* On a touch screen a typable date field is actively harmful: tapping it
+     raises the soft keyboard, which resizes the viewport, which moves the
+     field out from under the calendar and drops focus. So on coarse pointers
+     the field is read-only — tapping it opens the calendar and nothing else. */
+  var COARSE = (function () {
+    try {
+      return (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
+        ('ontouchstart' in window && !window.matchMedia('(pointer: fine)').matches);
+    } catch (e) { return false; }
+  })();
+
   DP.available = function () { return typeof window.flatpickr === 'function'; };
 
   /** Queue a picker for the next mount(). Returns the input for chaining. */
@@ -80,7 +91,7 @@ window.App = window.App || {};
       altInput: true,
       altFormat: ALT_FORMAT,        // what the user reads
       altInputClass: 'dp-input',
-      allowInput: true,             // typing still works
+      allowInput: !COARSE,          // typing on desktop, tap-only on touch
       disableMobile: true,          // same picker on Android as on desktop
       monthSelectorType: 'dropdown',   // jump months when back-dating a bill
       minDate: opts.minDate || null,
@@ -103,6 +114,16 @@ window.App = window.App || {};
       if (label) fp.altInput.setAttribute('aria-label', label);
       fp.altInput.setAttribute('placeholder', opts.placeholder || 'Pick a date');
       if (input.getAttribute('title')) fp.altInput.setAttribute('title', input.getAttribute('title'));
+
+      if (COARSE) {
+        /* readOnly is what actually suppresses the soft keyboard; inputmode and
+           the autocomplete/spellcheck hints stop keyboards that ignore it. */
+        fp.altInput.readOnly = true;
+        fp.altInput.setAttribute('inputmode', 'none');
+        fp.altInput.setAttribute('autocomplete', 'off');
+        fp.altInput.setAttribute('autocorrect', 'off');
+        fp.altInput.setAttribute('spellcheck', 'false');
+      }
     }
 
     // Today / Clear — without a Clear there is no way to un-set a date once

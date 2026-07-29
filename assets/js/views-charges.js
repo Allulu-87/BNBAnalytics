@@ -111,9 +111,14 @@ window.App.Views = window.App.Views || {};
         { color: col[k.key] }));
     });
     kpi.appendChild(tile('Still to pay', U.fmtMoneyTile(sum.total.unpaid),
-      U.fmtMoney(sum.total.paid, 2) + ' already paid',
+      U.fmtMoney(sum.total.paid, 2) + ' paid and deducted',
       { neg: sum.total.unpaid > 0 }));
     root.appendChild(kpi);
+
+    root.appendChild(U.el('p', { class: 'small muted', style: 'margin:-.35rem 0 1rem' }, [
+      'Totals here are everything recorded. Only the paid portion is deducted from ' +
+      'profit on the Dashboard — the rest stays pending.'
+    ]));
 
     /* ── over time ─────────────────────────────────────────────────────── */
 

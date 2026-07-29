@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="description" content="Airbnb reservation profit tracking — earnings, per-booking costs, bills and net profit, monthly and yearly.">
 <meta name="theme-color" content="#fcfcfb" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1a1a19" media="(prefers-color-scheme: dark)">
@@ -59,10 +59,17 @@ setTimeout(function () {
 }, 15000);
 </script>
 
+<!-- Mirrors the Android launch screen (icon + manifest name) so there is no
+     visible change when the OS splash hands over to the page. -->
 <div id="splash">
   <div class="inner">
+    <svg class="splash-mark" width="76" height="76" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="1" y="1" width="22" height="22" rx="6" fill="var(--series-1)"/>
+      <path d="M6 16.5V12m4 4.5V8.5m4 8V11m4 5.5V6.5" stroke="#fff" stroke-width="2.1"
+            stroke-linecap="round"/>
+    </svg>
+    <div class="splash-name">BNB Analytics by Allulu</div>
     <div class="spinner" role="progressbar" aria-label="Loading"></div>
-    <div>Starting the database…</div>
   </div>
 </div>
 

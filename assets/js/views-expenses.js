@@ -66,8 +66,8 @@ window.App.Views = window.App.Views || {};
     var paid = U.el('input', { type: 'checkbox', id: 'exp-paid' });
     paid.checked = !!draft.is_paid;
     paid.addEventListener('change', function () {
+      // no auto-filled date: marking it processed means naming the day it was paid
       draft.is_paid = this.checked;
-      if (this.checked && !draft.date_paid) { draft.date_paid = draft.expense_date || U.todayISO(); }
       App.refresh();
     });
 
@@ -87,10 +87,14 @@ window.App.Views = window.App.Views || {};
 
     function save() {
       var amt = U.parseNum(draft.amount);
-      if (!amt) { U.toast('Enter an amount first', true); return; }
+      if (!(amt > 0)) { U.toast('Enter an amount greater than zero', true); return; }
       if (!U.isISO(draft.expense_date)) { U.toast('Pick a date for this expense', true); return; }
       if (draft.category === 'Other' && !String(draft.detail).trim()) {
         U.toast('Say what the "Other" expense was', true); return;
+      }
+      // processed means the money moved, so it needs the day it moved
+      if (draft.is_paid && !U.isISO(draft.date_paid)) {
+        U.toast('Enter the date it was paid, or untick "payment processed"', true); return;
       }
       DB.saveExpense({
         id: editing || null,
@@ -195,26 +199,26 @@ window.App.Views = window.App.Views || {};
 
     var table = U.el('table', { class: 'data' });
     table.appendChild(U.el('thead', null, [
-      U.el('tr', null, ['Date', 'Category', 'Detail', 'Listing', 'Amount', 'Payment', 'Date paid', 'Note', ''].map(function (h, i) {
-        return U.el('th', { class: (i === 4 ? 'num' : ''), text: h });
+      U.el('tr', null, ['Category', 'Amount', 'Date', 'Detail', 'Listing', 'Payment', 'Date paid', 'Note', ''].map(function (h, i) {
+        return U.el('th', { class: (i === 1 ? 'num' : ''), text: h });
       }))
     ]));
 
     var tbody = U.el('tbody');
     rows.forEach(function (r) {
       tbody.appendChild(U.el('tr', null, [
-        U.el('td', { text: U.prettyDate(r.expense_date) }),
-        U.el('td', { text: r.category }),
-        U.el('td', { class: 'wrap', dir: 'auto', text: r.detail || '—' }),
-        U.el('td', { class: 'wrap', text: r.listing_name || 'All listings' }),
-        U.el('td', { class: 'num', text: U.fmtNum(r.amount, 2) }),
-        U.el('td', null, [U.el('span', {
+        U.el('td', { 'data-label': 'Category', text: r.category }),
+        U.el('td', { class: 'num', 'data-label': 'Amount', text: U.fmtNum(r.amount, 2) }),
+        U.el('td', { 'data-label': 'Date', text: U.prettyDate(r.expense_date) }),
+        U.el('td', { class: 'wrap', dir: 'auto', 'data-label': 'Detail', text: r.detail || '—' }),
+        U.el('td', { class: 'wrap', 'data-label': 'Listing', text: r.listing_name || 'All listings' }),
+        U.el('td', { 'data-label': 'Payment' }, [U.el('span', {
           class: 'badge ' + (r.is_paid ? 'paid' : 'due'),
           text: r.is_paid ? 'paid' : 'not paid'
         })]),
-        U.el('td', { text: r.date_paid ? U.prettyDate(r.date_paid) : '—' }),
-        U.el('td', { class: 'wrap', dir: 'auto', text: r.note || '—' }),
-        U.el('td', null, [U.el('div', { class: 'row', style: 'gap:.25rem;flex-wrap:nowrap' }, [
+        U.el('td', { 'data-label': 'Date paid', text: r.date_paid ? U.prettyDate(r.date_paid) : '—' }),
+        U.el('td', { class: 'wrap', dir: 'auto', 'data-label': 'Note', text: r.note || '—' }),
+        U.el('td', null, [U.el('div', { class: 'row', style: 'gap:.25rem;flex-wrap:nowrap;justify-content:flex-end' }, [
           U.el('button', {
             class: 'btn btn-sm', type: 'button', title: 'Edit',
             onclick: function () {
@@ -246,9 +250,9 @@ window.App.Views = window.App.Views || {};
     table.appendChild(tbody);
     table.appendChild(U.el('tfoot', null, [
       U.el('tr', null, [
-        U.el('td', { colspan: 4, text: 'Total' }),
-        U.el('td', { class: 'num', text: U.fmtNum(total, 2) }),
-        U.el('td', { colspan: 4, text: U.fmtMoney(unpaid, 2) + ' unpaid' })
+        U.el('td', { text: 'Total of ' + rows.length }),
+        U.el('td', { class: 'num', 'data-label': 'Amount', text: U.fmtNum(total, 2) }),
+        U.el('td', { colspan: 7, 'data-label': 'Unpaid', text: U.fmtMoney(unpaid, 2) })
       ])
     ]));
 

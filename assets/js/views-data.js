@@ -15,7 +15,8 @@ window.App.Views = window.App.Views || {};
     var head = ['Confirmation code', 'Listing', 'Status', 'Guest', 'Contact',
       'Adults', 'Children', 'Infants', 'Check-in', 'Check-out', 'Nights', 'Booked',
       'Earnings', 'Watchman', 'Tips', 'Water bottles', 'Fruits',
-      'Booking costs', 'Costs paid', 'Costs unpaid', 'Net profit', 'Currency'];
+      'Costs recorded', 'Costs paid (deducted)', 'Costs pending (not deducted)',
+      'Net profit', 'Currency'];
     var rows = [head];
     DB.reservations(f).forEach(function (r) {
       var c = DB.chargesFor(r.id);
@@ -57,25 +58,25 @@ window.App.Views = window.App.Views || {};
     return rows;
   }
 
+  var PERIOD_HEAD = ['Bookings', 'Nights', 'Earnings', 'Booking paid', 'Bills paid',
+    'Costs paid (deducted)', 'Net profit', 'Pending (not deducted)', 'Margin %'];
+
+  function periodRow(label, p) {
+    return [label, p.bookings, p.nights, U.round(p.earnings, 3),
+      U.round(p.bookingCosts, 3), U.round(p.expenses, 3), U.round(p.costs, 3),
+      U.round(p.net, 3), U.round(p.pending, 3),
+      p.earnings ? U.round(p.net / p.earnings * 100, 1) : 0];
+  }
+
   function monthlyRows(f) {
-    var rows = [['Month', 'Bookings', 'Nights', 'Earnings', 'Booking costs',
-      'Anytime expenses', 'Total costs', 'Net profit', 'Margin %']];
-    An.monthly(f).forEach(function (m) {
-      rows.push([U.monthLabel(m.k), m.bookings, m.nights, U.round(m.earnings, 3),
-        U.round(m.bookingCosts, 3), U.round(m.expenses, 3), U.round(m.costs, 3),
-        U.round(m.net, 3), m.earnings ? U.round(m.net / m.earnings * 100, 1) : 0]);
-    });
+    var rows = [['Month'].concat(PERIOD_HEAD)];
+    An.monthly(f).forEach(function (m) { rows.push(periodRow(U.monthLabel(m.k), m)); });
     return rows;
   }
 
   function yearlyRows(f) {
-    var rows = [['Year', 'Bookings', 'Nights', 'Earnings', 'Booking costs',
-      'Anytime expenses', 'Total costs', 'Net profit', 'Margin %']];
-    An.yearly(f).forEach(function (y) {
-      rows.push([y.k, y.bookings, y.nights, U.round(y.earnings, 3),
-        U.round(y.bookingCosts, 3), U.round(y.expenses, 3), U.round(y.costs, 3),
-        U.round(y.net, 3), y.earnings ? U.round(y.net / y.earnings * 100, 1) : 0]);
-    });
+    var rows = [['Year'].concat(PERIOD_HEAD)];
+    An.yearly(f).forEach(function (y) { rows.push(periodRow(y.k, y)); });
     return rows;
   }
 
@@ -92,16 +93,21 @@ window.App.Views = window.App.Views || {};
       ['Bookings', s.bookings],
       ['Nights', s.nights],
       ['Total earnings', U.round(s.earnings, 3)],
-      ['Per-booking costs', U.round(s.bookingCosts, 3)],
-      ['Anytime expenses', U.round(s.expenses, 3)],
-      ['Total costs', U.round(s.totalCosts, 3)],
+      ['', ''],
+      ['Deducted — per-booking paid', U.round(s.bookingCosts, 3)],
+      ['Deducted — bills paid', U.round(s.expenses, 3)],
+      ['Deducted — total', U.round(s.deducted, 3)],
       ['Net profit', U.round(s.net, 3)],
       ['Margin %', U.round(s.margin * 100, 1)],
+      ['', ''],
+      ['Pending — per-booking', U.round(s.unpaidBooking, 3)],
+      ['Pending — bills', U.round(s.unpaidExpenses, 3)],
+      ['Pending — total (not deducted)', U.round(s.pending, 3)],
+      ['Net profit once pending is paid', U.round(s.netAfterPending, 3)],
+      ['', ''],
+      ['Costs recorded (paid + pending)', U.round(s.committed, 3)],
       ['Avg earnings per night', U.round(s.perNight, 3)],
-      ['Avg per booking', U.round(s.avgBooking, 3)],
-      ['Still to pay (total)', U.round(s.unpaid, 3)],
-      ['Still to pay (per-booking)', U.round(s.unpaidBooking, 3)],
-      ['Still to pay (bills)', U.round(s.unpaidExpenses, 3)]
+      ['Avg per booking', U.round(s.avgBooking, 3)]
     ];
   }
 
