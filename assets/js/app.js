@@ -143,7 +143,18 @@ window.App = window.App || {};
 
   /* ── render ───────────────────────────────────────────────────────────── */
 
-  function render() {
+  /**
+   * Rebuild the chrome and the active view.
+   *
+   * Every edit re-renders the whole view, which briefly empties the page and
+   * collapses its height — the browser then clamps the scroll offset, which
+   * reads as "it jumped to the top". So the offset is captured and restored
+   * around the rebuild. Only an explicit tab change asks for the top.
+   */
+  function render(opts) {
+    var toTop = !!(opts && opts.toTop);
+    var y = toTop ? 0 : (window.pageYOffset || document.documentElement.scrollTop || 0);
+
     // flatpickr parks its calendars on <body>; drop them before their inputs go
     App.DP.destroyAll();
 
@@ -168,9 +179,12 @@ window.App = window.App || {};
 
     // inputs are in the document now — flatpickr needs a parent to attach to
     App.DP.mount();
+
+    if (toTop) window.scrollTo(0, 0);
+    else if (y) window.scrollTo(0, y);
   }
 
-  App.refresh = render;
+  App.refresh = function () { render(); };
   App.state = state;
 
   // charts are sized in pixels against the container, so redraw on resize
@@ -181,8 +195,7 @@ window.App = window.App || {};
   App.go = function (tab) {
     active = tab;
     try { history.replaceState(null, '', '#' + tab); } catch (e) { /* file:// */ }
-    window.scrollTo({ top: 0 });
-    render();
+    render({ toTop: true });
   };
 
   /* ── persistence ──────────────────────────────────────────────────────── */

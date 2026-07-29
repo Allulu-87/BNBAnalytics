@@ -199,26 +199,26 @@ window.App.Views = window.App.Views || {};
 
     var table = U.el('table', { class: 'data' });
     table.appendChild(U.el('thead', null, [
-      U.el('tr', null, ['Category', 'Amount', 'Date', 'Detail', 'Listing', 'Payment', 'Date paid', 'Note', ''].map(function (h, i) {
-        return U.el('th', { class: (i === 1 ? 'num' : ''), text: h });
+      U.el('tr', null, ['Date', 'Category', 'Detail', 'Listing', 'Amount', 'Payment', 'Date paid', 'Note', ''].map(function (h, i) {
+        return U.el('th', { class: (i === 4 ? 'num' : ''), text: h });
       }))
     ]));
 
     var tbody = U.el('tbody');
     rows.forEach(function (r) {
       tbody.appendChild(U.el('tr', null, [
-        U.el('td', { 'data-label': 'Category', text: r.category }),
-        U.el('td', { class: 'num', 'data-label': 'Amount', text: U.fmtNum(r.amount, 2) }),
-        U.el('td', { 'data-label': 'Date', text: U.prettyDate(r.expense_date) }),
-        U.el('td', { class: 'wrap', dir: 'auto', 'data-label': 'Detail', text: r.detail || '—' }),
-        U.el('td', { class: 'wrap', 'data-label': 'Listing', text: r.listing_name || 'All listings' }),
-        U.el('td', { 'data-label': 'Payment' }, [U.el('span', {
+        U.el('td', { text: U.prettyDate(r.expense_date) }),
+        U.el('td', { text: r.category }),
+        U.el('td', { class: 'wrap', dir: 'auto', text: r.detail || '—' }),
+        U.el('td', { class: 'wrap', text: r.listing_name || 'All listings' }),
+        U.el('td', { class: 'num', text: U.fmtNum(r.amount, 2) }),
+        U.el('td', null, [U.el('span', {
           class: 'badge ' + (r.is_paid ? 'paid' : 'due'),
           text: r.is_paid ? 'paid' : 'not paid'
         })]),
-        U.el('td', { 'data-label': 'Date paid', text: r.date_paid ? U.prettyDate(r.date_paid) : '—' }),
-        U.el('td', { class: 'wrap', dir: 'auto', 'data-label': 'Note', text: r.note || '—' }),
-        U.el('td', null, [U.el('div', { class: 'row', style: 'gap:.25rem;flex-wrap:nowrap;justify-content:flex-end' }, [
+        U.el('td', { text: r.date_paid ? U.prettyDate(r.date_paid) : '—' }),
+        U.el('td', { class: 'wrap', dir: 'auto', text: r.note || '—' }),
+        U.el('td', null, [U.el('div', { class: 'row', style: 'gap:.25rem;flex-wrap:nowrap' }, [
           U.el('button', {
             class: 'btn btn-sm', type: 'button', title: 'Edit',
             onclick: function () {
@@ -250,9 +250,9 @@ window.App.Views = window.App.Views || {};
     table.appendChild(tbody);
     table.appendChild(U.el('tfoot', null, [
       U.el('tr', null, [
-        U.el('td', { text: 'Total of ' + rows.length }),
-        U.el('td', { class: 'num', 'data-label': 'Amount', text: U.fmtNum(total, 2) }),
-        U.el('td', { colspan: 7, 'data-label': 'Unpaid', text: U.fmtMoney(unpaid, 2) })
+        U.el('td', { colspan: 4, text: 'Total' }),
+        U.el('td', { class: 'num', text: U.fmtNum(total, 2) }),
+        U.el('td', { colspan: 4, text: U.fmtMoney(unpaid, 2) + ' unpaid' })
       ])
     ]));
 

@@ -136,22 +136,22 @@ window.App.Views = window.App.Views || {};
     if (pending.newRows.length) {
       var t = U.el('table', { class: 'data' });
       t.appendChild(U.el('thead', null, [
-        U.el('tr', null, ['Guest', 'Code', 'Listing', 'Check-in', 'Check-out', 'Nights', 'Status', 'Earnings', 'Watchman'].map(function (h, i) {
+        U.el('tr', null, ['Code', 'Listing', 'Guest', 'Check-in', 'Check-out', 'Nights', 'Status', 'Earnings', 'Watchman'].map(function (h, i) {
           return U.el('th', { class: (i >= 5 && i !== 6 ? 'num' : ''), text: h });
         }))
       ]));
       var tb = U.el('tbody');
       pending.newRows.forEach(function (r) {
         tb.appendChild(U.el('tr', null, [
-          U.el('td', { class: 'wrap', dir: 'auto', 'data-label': 'Guest', text: r.guest_name || '—' }),
-          U.el('td', { 'data-label': 'Code' }, [U.el('span', { class: 'mono small', text: r.confirmation_code })]),
-          U.el('td', { class: 'wrap', 'data-label': 'Listing', text: r.listing_name }),
-          U.el('td', { 'data-label': 'Check-in', text: U.prettyDate(r.start_date) }),
-          U.el('td', { 'data-label': 'Check-out', text: U.prettyDate(r.end_date) }),
-          U.el('td', { class: 'num', 'data-label': 'Nights', text: r.nights }),
-          U.el('td', { 'data-label': 'Status', text: r.status || '—' }),
-          U.el('td', { class: 'num', 'data-label': 'Earnings', text: U.fmtNum(r.earnings, 2) }),
-          U.el('td', { class: 'num', 'data-label': 'Watchman', text: U.fmtNum(rate * r.nights, 2) })
+          U.el('td', null, [U.el('span', { class: 'mono small', text: r.confirmation_code })]),
+          U.el('td', { class: 'wrap', text: r.listing_name }),
+          U.el('td', { class: 'wrap', dir: 'auto', text: r.guest_name || '—' }),
+          U.el('td', { text: U.prettyDate(r.start_date) }),
+          U.el('td', { text: U.prettyDate(r.end_date) }),
+          U.el('td', { class: 'num', text: r.nights }),
+          U.el('td', { text: r.status || '—' }),
+          U.el('td', { class: 'num', text: U.fmtNum(r.earnings, 2) }),
+          U.el('td', { class: 'num', text: U.fmtNum(rate * r.nights, 2) })
         ]));
       });
       t.appendChild(tb);
@@ -173,9 +173,9 @@ window.App.Views = window.App.Views || {};
       var bb = U.el('tbody');
       pending.bad.slice(0, 30).forEach(function (b) {
         bb.appendChild(U.el('tr', null, [
-          U.el('td', { 'data-label': 'Line', text: b.line }),
-          U.el('td', { class: 'wrap', 'data-label': 'Reason', text: b.why }),
-          U.el('td', { class: 'wrap small muted', 'data-label': 'Row', text: String(b.raw).slice(0, 90) })
+          U.el('td', { text: b.line }),
+          U.el('td', { text: b.why }),
+          U.el('td', { class: 'wrap small muted', text: String(b.raw).slice(0, 90) })
         ]));
       });
       bt.appendChild(bb);

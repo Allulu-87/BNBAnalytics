@@ -504,9 +504,7 @@ window.App = window.App || {};
     });
   };
 
-  /** Build the table-view twin every chart is required to have.
-      Each cell carries data-label so the mobile stylesheet can reflow the
-      table into stacked cards rather than scrolling it sideways. */
+  /** Build the table-view twin every chart is required to have. */
   C.table = function (head, rows, foot) {
     var t = U.el('table', { class: 'data' });
     var thead = U.el('thead');
@@ -516,11 +514,7 @@ window.App = window.App || {};
     t.appendChild(thead);
 
     var cell = function (c, i) {
-      return U.el('td', {
-        class: i ? 'num' : '',
-        'data-label': head[i] == null ? '' : String(head[i]),
-        text: c
-      });
+      return U.el('td', { class: i ? 'num' : '', text: c });
     };
 
     var tb = U.el('tbody');

@@ -117,7 +117,7 @@ window.App.Views = window.App.Views || {};
         U.el('p', { text: 'Earnings, costs actually paid, and net profit by month, in ' + U.currency + '.' })
       ]),
       U.el('div', { class: 'spacer' }),
-      toggle('monthly', function () { App.Views.dashboard(root); })
+      toggle('monthly', App.refresh)
     ]);
     monthCard.appendChild(mHead);
 
@@ -168,7 +168,7 @@ window.App.Views = window.App.Views || {};
         U.el('p', { text: 'Every cost line in this period, largest first — recorded amounts, paid or not.' })
       ]),
       U.el('div', { class: 'spacer' }),
-      toggle('costs', function () { App.Views.dashboard(root); })
+      toggle('costs', App.refresh)
     ]));
     if (viewMode.costs === 'chart') {
       var cWrap = U.el('div', { class: 'chart-wrap' });

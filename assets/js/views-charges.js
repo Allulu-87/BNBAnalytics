@@ -73,7 +73,8 @@ window.App.Views = window.App.Views || {};
 
   App.Views.charges = function (root) {
     U.clear(root);
-    var rerender = function () { App.Views.charges(root); };
+    // go through render() so the scroll position survives the rebuild
+    var rerender = App.refresh;
     var f = App.state.filter();
     var col = kindColors();
     var draws = [];

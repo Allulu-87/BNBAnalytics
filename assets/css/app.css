@@ -83,18 +83,14 @@
 
 * { box-sizing: border-box; }
 
-html, body {
-  margin: 0;
-  padding: 0;
-  /* Nothing in this app is allowed to scroll sideways — the page is the width
-     of the device and every wide thing reflows instead. */
-  max-width: 100%;
-  overflow-x: hidden;
-}
+/* Nothing here may create a second scroll container. `overflow-x: hidden` on
+   html/body propagates overflow-y to a nested scroller, which is what made
+   one-finger vertical scrolling stop working on Android; likewise a global
+   `touch-action` override interferes with native panning. Wide content is
+   handled where it occurs (.table-scroll, .chart-wrap) instead. */
+html, body { margin: 0; padding: 0; }
 
 html {
-  /* kill the double-tap-to-zoom delay so taps feel native */
-  touch-action: manipulation;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
@@ -105,12 +101,8 @@ body {
   color: var(--text-primary);
   font-size: 15px;
   line-height: 1.5;
-  overscroll-behavior-y: contain;      /* no rubber-band / pull-to-refresh */
   -webkit-tap-highlight-color: transparent;
 }
-
-/* Long unbroken strings (listing names, notes, codes) must never widen a row */
-body, td, th, p, div, span { overflow-wrap: break-word; }
 
 h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 h1 { font-size: 1.05rem; }
@@ -161,6 +153,12 @@ main { padding: clamp(.75rem, 2vw, 1.5rem); max-width: 1400px; margin: 0 auto; }
 .view[hidden] { display: none; }
 
 /* ── Buttons & controls ─────────────────────────────────────────────────── */
+
+/* Kill the double-tap-zoom delay on things you tap, without ever overriding
+   touch-action on a scrolling ancestor (that breaks one-finger panning). */
+.btn, .chip, .tab, label, input[type="checkbox"], .dp-foot-btn, .flatpickr-day {
+  touch-action: manipulation;
+}
 
 .btn {
   appearance: none; cursor: pointer; font: inherit; font-size: .84rem; font-weight: 500;
@@ -287,10 +285,17 @@ label { font-size: .78rem; color: var(--text-secondary); font-weight: 500; }
 
 /* ── Tables ─────────────────────────────────────────────────────────────── */
 
-/* On desktop a very wide table may still scroll inside its own card; on mobile
-   it is reflowed into stacked cards instead (see the media query below), so
-   nothing ever scrolls sideways there. */
-.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+/* A wide table scrolls sideways inside this box only — never the page.
+   touch-action pans both ways here so a vertical drag that starts on a table
+   still scrolls the page rather than being swallowed by the table. */
+.table-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+  touch-action: pan-x pan-y;
+  overscroll-behavior-x: contain;
+}
 
 table.data { width: 100%; border-collapse: collapse; font-size: .82rem; }
 table.data th, table.data td {
@@ -333,51 +338,28 @@ table.data tr.is-open { background: var(--surface-2); }
 tr.detail-row > td { padding: 0; background: var(--surface-2); border-bottom: 1px solid var(--gridline); }
 .detail-box { padding: .7rem; }
 
-/* ── per-booking charges: one row per charge, not a grid of boxes ───────── */
+/* ── per-booking charges: one table row per charge ──────────────────────── */
 
-.charge-rows { display: grid; gap: .3rem; }
+table.charge-table { min-width: 620px; }          /* scrolls in .table-scroll */
+table.charge-table td { vertical-align: middle; padding: .3rem .4rem; }
+table.charge-table th { padding: .35rem .4rem; }
 
-.charge-row {
-  display: grid;
-  gap: .35rem .5rem;
-  grid-template-columns: minmax(130px, 1.5fr) 108px minmax(140px, 1fr) 116px;
-  grid-template-areas: "name amount date paid";
-  align-items: center;
-  padding: .4rem .5rem;
-  background: var(--surface-1);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-.charge-row.is-set { border-color: color-mix(in srgb, var(--series-1) 35%, var(--border)); }
+table.charge-table .c-name { min-width: 132px; }
+table.charge-table .c-name strong { display: block; font-size: .82rem; }
+table.charge-table .c-name .hint { font-size: .7rem; color: var(--text-muted); }
+table.charge-table .c-amount { width: 104px; }
+table.charge-table .c-date { width: 158px; }
+table.charge-table .c-note { min-width: 170px; }
+table.charge-table .c-paid { width: 92px; text-align: center; }
 
-/* column headings, shown once above the rows on wide screens */
-.charge-row.head {
-  background: transparent;
-  border: 0;
-  padding: 0 .5rem .1rem;
-  font-size: .72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .03em;
-  color: var(--text-muted);
-}
+table.charge-table input[type="number"],
+table.charge-table input[type="text"] { min-width: 0; }
+table.charge-table input[type="checkbox"] { width: 20px; height: 20px; }
 
-.cr-name { grid-area: name; min-width: 0; display: flex; flex-direction: column; gap: .05rem; }
-.cr-name strong { font-size: .84rem; font-weight: 600; }
-.cr-name .hint { font-size: .7rem; color: var(--text-muted); }
-.cr-amount { grid-area: amount; }
-.cr-date { grid-area: date; }
-.cr-paid { grid-area: paid; }
-.cr-note { grid-area: note; }
+table.charge-table tbody tr:hover { background: transparent; }
+table.charge-table tr.is-set td.c-name strong { color: var(--series-1); }
 
-.cr-paid label {
-  display: inline-flex; align-items: center; gap: .4rem;
-  font-size: .78rem; color: var(--text-secondary); cursor: pointer;
-  min-height: 34px;
-}
-.cr-note input { font-size: .8rem; }
-.cr-notebtn {
-  align-self: flex-start;
+.cr-usebtn {
   appearance: none; background: none; border: 0; cursor: pointer;
   padding: 0; font: inherit; font-size: .7rem; font-weight: 500;
   color: var(--series-1); text-decoration: underline;
@@ -391,28 +373,6 @@ tr.detail-row > td { padding: 0; background: var(--surface-2); border-bottom: 1p
 }
 .charge-total .k { color: var(--text-muted); }
 .charge-total .v { font-weight: 600; font-variant-numeric: tabular-nums; }
-
-@media (max-width: 760px) {
-  .charge-row {
-    grid-template-columns: 1fr 1fr;
-    grid-template-areas:
-      "name  name"
-      "amount paid"
-      "date  date";
-    padding: .5rem .55rem;
-    gap: .45rem .5rem;
-  }
-  .charge-row.head { display: none; }
-  .charge-row .cr-note { grid-area: auto; grid-column: 1 / -1; }
-  .cr-paid label { justify-content: flex-end; min-height: 42px; }
-}
-@media (min-width: 761px) {
-  .charge-row:has(.cr-note) {
-    grid-template-areas:
-      "name amount date paid"
-      "note note note note";
-  }
-}
 
 /* ── Import ─────────────────────────────────────────────────────────────── */
 
@@ -498,76 +458,9 @@ tr.detail-row > td { padding: 0; background: var(--surface-2); border-bottom: 1p
   .filterbar .field { flex: 1 1 100%; }
 }
 
-/* ==========================================================================
-   Mobile: tables become stacked cards
-   Each <td> carries data-label (set where the table is built), which becomes
-   the row's field name. This is what removes horizontal scrolling entirely —
-   no column is dropped, so nothing is hidden from the reader.
-   ========================================================================== */
-
-@media (max-width: 760px) {
-  .table-scroll { overflow-x: visible; }
-
-  table.data { border-collapse: separate; border-spacing: 0; }
-
-  table.data thead { display: none; }          /* labels move into each cell */
-
-  table.data,
-  table.data tbody,
-  table.data tfoot,
-  table.data tr,
-  table.data td { display: block; width: 100%; }
-
-  table.data tr {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: .5rem .6rem;
-    margin-bottom: .5rem;
-    background: var(--surface-1);
-  }
-  table.data tbody tr:hover { background: var(--surface-1); }
-
-  table.data td {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: .9rem;
-    padding: .22rem 0;
-    border: 0;
-    white-space: normal;
-    text-align: right;
-  }
-  table.data td::before {
-    content: attr(data-label);
-    flex: 0 1 auto;
-    text-align: left;
-    color: var(--text-secondary);
-    font-size: .76rem;
-    font-weight: 500;
-  }
-  /* a cell with no label (action buttons) gets the full width */
-  table.data td:not([data-label]) { justify-content: flex-end; }
-  table.data td[data-label=""]::before { content: none; }
-
-  table.data td.num { text-align: right; }
-
-  /* the first cell reads as the card's heading */
-  table.data tbody td:first-child {
-    font-weight: 600;
-    padding-bottom: .35rem;
-    margin-bottom: .2rem;
-    border-bottom: 1px solid var(--gridline);
-  }
-
-  table.data tfoot tr {
-    background: var(--surface-2);
-    border-color: var(--baseline);
-  }
-  table.data tfoot td { font-weight: 600; }
-
-  /* hide cells that are empty on mobile — they'd read as blank rows */
-  table.data td.hide-sm { display: none; }
-}
+/* Tables keep their normal shape at every width. One wider than the screen
+   scrolls sideways inside its own .table-scroll box; the page itself never
+   does, so a vertical drag is never fighting a horizontal gesture. */
 
 @media print {
   .topbar, .tabs, .filterbar, .btn, .dropzone { display: none !important; }

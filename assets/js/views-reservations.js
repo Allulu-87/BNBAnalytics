@@ -28,9 +28,6 @@ window.App.Views = window.App.Views || {};
 
   /* ── the four charge editors ──────────────────────────────────────────── */
 
-  // which charge rows have their optional note field revealed
-  var notesOpen = {};
-
   function chargeRow(res, kind, existing, onSaved) {
     var row = existing || { amount: 0, date_paid: null, is_paid: 0, note: null };
     var rate = U.parseNum(DB.getSetting('watchman_rate'));
@@ -45,13 +42,15 @@ window.App.Views = window.App.Views || {};
       type: 'text', value: row.date_paid || '', 'aria-label': kind.label + ' date paid'
     });
     var isPaid = U.el('input', {
-      type: 'checkbox', id: 'paid-' + res.id + '-' + kind.key
+      type: 'checkbox', id: 'paid-' + res.id + '-' + kind.key,
+      // no visible text beside it, so the column header alone isn't enough
+      'aria-label': kind.label + ' payment processed'
     });
     isPaid.checked = !!row.is_paid;
 
     var note = U.el('input', {
-      type: 'text', value: row.note || '', placeholder: 'Note (optional)',
-      'aria-label': kind.label + ' note'
+      type: 'text', value: row.note || '', placeholder: 'Notes',
+      'aria-label': kind.label + ' notes'
     });
 
     function commit() {
@@ -89,17 +88,11 @@ window.App.Views = window.App.Views || {};
     note.addEventListener('change', commit);
     isPaid.addEventListener('change', commit);
 
-    var noteKey = res.id + ':' + kind.key;
-    var showNote = !!row.note || notesOpen[noteKey];
+    var hint = (kind.key === 'watchman' && res.nights > 0)
+      ? U.fmtNum(rate, 3) + ' × ' + res.nights + ' nights'
+      : kind.hint;
 
-    var hint;
-    if (kind.key === 'watchman' && res.nights > 0) {
-      hint = U.fmtNum(rate, 3) + ' × ' + res.nights + ' nights';
-    } else {
-      hint = kind.hint;
-    }
-
-    var nameCell = U.el('div', { class: 'cr-name' }, [
+    var nameCell = U.el('td', { class: 'c-name' }, [
       U.el('strong', { text: kind.label }),
       U.el('span', { class: 'hint', text: hint })
     ]);
@@ -109,48 +102,40 @@ window.App.Views = window.App.Views || {};
       var expect = U.round(rate * res.nights, 3);
       if (Math.abs(U.parseNum(amount.value) - expect) > 0.0005) {
         nameCell.appendChild(U.el('button', {
-          class: 'cr-notebtn', type: 'button',
+          class: 'cr-usebtn', type: 'button',
           onclick: function () { amount.value = expect; commit(); }
         }, ['use ' + U.fmtNum(expect, 3)]));
       }
     }
-    if (!showNote) {
-      nameCell.appendChild(U.el('button', {
-        class: 'cr-notebtn', type: 'button',
-        onclick: function () { notesOpen[noteKey] = true; onSaved(); }
-      }, ['+ note']));
-    }
 
-    var kids = [
+    return U.el('tr', { class: row.amount > 0 ? 'is-set' : '' }, [
       nameCell,
-      U.el('div', { class: 'cr-amount' }, [amount]),
-      U.el('div', { class: 'cr-date' }, [datePaid]),
-      // the checkbox is nested inside its label, so no `for` — pairing both
-      // makes some browsers register two activations from one tap
-      U.el('div', { class: 'cr-paid' }, [
-        U.el('label', null, [isPaid, 'Processed'])
-      ])
-    ];
-    if (showNote) kids.push(U.el('div', { class: 'cr-note' }, [note]));
-
-    return U.el('div', {
-      class: 'charge-row' + (row.amount > 0 ? ' is-set' : '')
-    }, kids);
+      U.el('td', { class: 'c-amount' }, [amount]),
+      U.el('td', { class: 'c-date' }, [datePaid]),
+      U.el('td', { class: 'c-note' }, [note]),
+      U.el('td', { class: 'c-paid' }, [isPaid])
+    ]);
   }
 
   function detailBox(res, rerender) {
     var charges = DB.chargesFor(res.id);
 
-    var rows = U.el('div', { class: 'charge-rows' });
-    rows.appendChild(U.el('div', { class: 'charge-row head' }, [
-      U.el('div', { class: 'cr-name', text: 'Charge' }),
-      U.el('div', { class: 'cr-amount', text: U.currency }),
-      U.el('div', { class: 'cr-date', text: 'Date paid' }),
-      U.el('div', { class: 'cr-paid', text: 'Processed' })
+    var table = U.el('table', { class: 'data charge-table' });
+    table.appendChild(U.el('thead', null, [
+      U.el('tr', null, [
+        U.el('th', { text: 'Charge' }),
+        U.el('th', { class: 'num', text: 'Amount (' + U.currency + ')' }),
+        U.el('th', { text: 'Date paid' }),
+        U.el('th', { text: 'Notes' }),
+        U.el('th', { style: 'text-align:center', text: 'Processed' })
+      ])
     ]));
+    var tb = U.el('tbody');
     DB.CHARGE_KINDS.forEach(function (kind) {
-      rows.appendChild(chargeRow(res, kind, charges[kind.key], rerender));
+      tb.appendChild(chargeRow(res, kind, charges[kind.key], rerender));
     });
+    table.appendChild(tb);
+    var rows = U.el('div', { class: 'table-scroll' }, [table]);
 
     function stat(label, value, cls) {
       return U.el('span', null, [
@@ -196,9 +181,9 @@ window.App.Views = window.App.Views || {};
   /* ── table ────────────────────────────────────────────────────────────── */
 
   var COLS = [
-    { key: 'guest_name', label: 'Guest' },
     { key: 'confirmation_code', label: 'Code' },
     { key: 'listing_name', label: 'Listing' },
+    { key: 'guest_name', label: 'Guest' },
     { key: 'start_date', label: 'Check-in' },
     { key: 'end_date', label: 'Check-out' },
     { key: 'nights', label: 'Nights', num: true },
@@ -295,17 +280,17 @@ window.App.Views = window.App.Views || {};
           }
         }
       }, [
-        U.el('td', { class: 'wrap', dir: 'auto', 'data-label': 'Guest', text: r.guest_name || '—' }),
-        U.el('td', { 'data-label': 'Code' }, [U.el('span', { class: 'mono small', text: r.confirmation_code })]),
-        U.el('td', { class: 'wrap', 'data-label': 'Listing', text: r.listing_name }),
-        U.el('td', { 'data-label': 'Check-in', text: U.prettyDate(r.start_date) }),
-        U.el('td', { 'data-label': 'Check-out', text: U.prettyDate(r.end_date) }),
-        U.el('td', { class: 'num', 'data-label': 'Nights', text: r.nights }),
-        U.el('td', { 'data-label': 'Status' }, [statusBadge(r.status)]),
-        U.el('td', { class: 'num', 'data-label': 'Earnings', text: U.fmtNum(r.earnings, 2) }),
-        U.el('td', { class: 'num', 'data-label': 'Deducted', text: U.fmtNum(r.cost_paid, 2) }),
-        U.el('td', { class: 'num' + (r.net < 0 ? ' money-neg' : ''), 'data-label': 'Net', text: U.fmtNum(r.net, 2) }),
-        U.el('td', { 'data-label': 'Payment' }, [paidBadge(r)])
+        U.el('td', null, [U.el('span', { class: 'mono small', text: r.confirmation_code })]),
+        U.el('td', { class: 'wrap', text: r.listing_name }),
+        U.el('td', { class: 'wrap', dir: 'auto', text: r.guest_name || '—' }),
+        U.el('td', { text: U.prettyDate(r.start_date) }),
+        U.el('td', { text: U.prettyDate(r.end_date) }),
+        U.el('td', { class: 'num', text: r.nights }),
+        U.el('td', null, [statusBadge(r.status)]),
+        U.el('td', { class: 'num', text: U.fmtNum(r.earnings, 2) }),
+        U.el('td', { class: 'num', text: U.fmtNum(r.cost_paid, 2) }),
+        U.el('td', { class: 'num' + (r.net < 0 ? ' money-neg' : ''), text: U.fmtNum(r.net, 2) }),
+        U.el('td', null, [paidBadge(r)])
       ]);
       tbody.appendChild(tr);
 
@@ -322,12 +307,12 @@ window.App.Views = window.App.Views || {};
     table.appendChild(U.el('tfoot', null, [
       U.el('tr', null, [
         U.el('td', { colspan: 5, text: 'Total of ' + rows.length + ' shown' }),
-        U.el('td', { class: 'num', 'data-label': 'Nights', text: totals.nights }),
-        U.el('td', { class: 'hide-sm' }),
-        U.el('td', { class: 'num', 'data-label': 'Earnings', text: U.fmtNum(totals.earnings, 2) }),
-        U.el('td', { class: 'num', 'data-label': 'Deducted', text: U.fmtNum(totals.costs, 2) }),
-        U.el('td', { class: 'num' + (totals.net < 0 ? ' money-neg' : ''), 'data-label': 'Net', text: U.fmtNum(totals.net, 2) }),
-        U.el('td', { 'data-label': 'Pending', text: U.fmtNum(totals.pending, 2) })
+        U.el('td', { class: 'num', text: totals.nights }),
+        U.el('td'),
+        U.el('td', { class: 'num', text: U.fmtNum(totals.earnings, 2) }),
+        U.el('td', { class: 'num', text: U.fmtNum(totals.costs, 2) }),
+        U.el('td', { class: 'num' + (totals.net < 0 ? ' money-neg' : ''), text: U.fmtNum(totals.net, 2) }),
+        U.el('td', { class: 'small muted', text: U.fmtNum(totals.pending, 2) + ' pending' })
       ])
     ]));
 
