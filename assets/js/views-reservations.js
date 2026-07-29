@@ -28,9 +28,23 @@ window.App.Views = window.App.Views || {};
 
   /* ── the four charge editors ──────────────────────────────────────────── */
 
+  /**
+   * One charge as a table row.
+   *
+   * `onSaved` deliberately does NOT re-render the view. Rebuilding the whole
+   * table on every field edit destroyed the inputs mid-use: focus was lost, the
+   * date picker closed, and any horizontal scroll snapped back to the left. So
+   * a charge edit writes to the database and then patches just the figures that
+   * changed, leaving every input exactly where it was.
+   */
   function chargeRow(res, kind, existing, onSaved) {
     var row = existing || { amount: 0, date_paid: null, is_paid: 0, note: null };
     var rate = U.parseNum(DB.getSetting('watchman_rate'));
+    var expect = (kind.key === 'watchman' && res.nights > 0)
+      ? U.round(rate * res.nights, 3)
+      : null;
+    var tr = U.el('tr', { class: row.amount > 0 ? 'is-set' : '' });
+    var useBtn = null;
 
     var amount = U.el('input', {
       type: 'number', step: '0.001', min: '0', inputmode: 'decimal',
@@ -79,7 +93,18 @@ window.App.Views = window.App.Views || {};
         note: note.value.trim() || null
       });
       App.persist();
+
+      // patch this row in place, then let the caller refresh the figures
+      tr.className = amt > 0 ? 'is-set' : '';
+      syncUseBtn();
       onSaved();
+    }
+
+    /** The "use N" shortcut only makes sense while the amount differs. */
+    function syncUseBtn() {
+      if (!useBtn) return;
+      useBtn.style.display =
+        Math.abs(U.parseNum(amount.value) - expect) > 0.0005 ? '' : 'none';
     }
 
     App.DP.attach(datePaid, { placeholder: 'Not paid yet', onPick: commit });
@@ -88,54 +113,45 @@ window.App.Views = window.App.Views || {};
     note.addEventListener('change', commit);
     isPaid.addEventListener('change', commit);
 
-    var hint = (kind.key === 'watchman' && res.nights > 0)
+    var hint = expect != null
       ? U.fmtNum(rate, 3) + ' × ' + res.nights + ' nights'
       : kind.hint;
 
-    var nameCell = U.el('td', { class: 'c-name' }, [
-      U.el('strong', { text: kind.label }),
+    var nameCell = U.el('td', {
+      class: 'c-name',
+      title: kind.label + ' — ' + hint
+    }, [
+      U.el('strong', { text: kind.short || kind.label }),
       U.el('span', { class: 'hint', text: hint })
     ]);
 
-    // offer the per-night figure when the amount doesn't match the rate
-    if (kind.key === 'watchman' && res.nights > 0) {
-      var expect = U.round(rate * res.nights, 3);
-      if (Math.abs(U.parseNum(amount.value) - expect) > 0.0005) {
-        nameCell.appendChild(U.el('button', {
-          class: 'cr-usebtn', type: 'button',
-          onclick: function () { amount.value = expect; commit(); }
-        }, ['use ' + U.fmtNum(expect, 3)]));
-      }
+    if (expect != null) {
+      useBtn = U.el('button', {
+        class: 'cr-usebtn', type: 'button',
+        onclick: function () { amount.value = expect; commit(); }
+      }, ['use ' + U.fmtNum(expect, 3)]);
+      nameCell.appendChild(useBtn);
+      syncUseBtn();
     }
 
-    return U.el('tr', { class: row.amount > 0 ? 'is-set' : '' }, [
+    [
       nameCell,
       U.el('td', { class: 'c-amount' }, [amount]),
       U.el('td', { class: 'c-date' }, [datePaid]),
       U.el('td', { class: 'c-note' }, [note]),
       U.el('td', { class: 'c-paid' }, [isPaid])
-    ]);
+    ].forEach(function (td) { tr.appendChild(td); });
+
+    return tr;
   }
 
-  function detailBox(res, rerender) {
+  /**
+   * @param {object} res       the reservation row
+   * @param {HTMLElement} tr   its row in the outer table, patched in place
+   */
+  function detailBox(res, tr, onFigures) {
     var charges = DB.chargesFor(res.id);
-
-    var table = U.el('table', { class: 'data charge-table' });
-    table.appendChild(U.el('thead', null, [
-      U.el('tr', null, [
-        U.el('th', { text: 'Charge' }),
-        U.el('th', { class: 'num', text: 'Amount (' + U.currency + ')' }),
-        U.el('th', { text: 'Date paid' }),
-        U.el('th', { text: 'Notes' }),
-        U.el('th', { style: 'text-align:center', text: 'Processed' })
-      ])
-    ]));
-    var tb = U.el('tbody');
-    DB.CHARGE_KINDS.forEach(function (kind) {
-      tb.appendChild(chargeRow(res, kind, charges[kind.key], rerender));
-    });
-    table.appendChild(tb);
-    var rows = U.el('div', { class: 'table-scroll' }, [table]);
+    var totals = U.el('div', { class: 'charge-total' });
 
     function stat(label, value, cls) {
       return U.el('span', null, [
@@ -144,14 +160,50 @@ window.App.Views = window.App.Views || {};
       ]);
     }
 
-    var totals = U.el('div', { class: 'charge-total' }, [
-      stat('Earnings', U.fmtMoney(res.earnings, 3)),
-      stat('Deducted', U.fmtMoney(res.cost_paid, 3)),
-      res.cost_pending > 0.0005
-        ? stat('Pending', U.fmtMoney(res.cost_pending, 3) + ' (not deducted)')
-        : null,
-      stat('Net', U.fmtMoney(res.net, 3), res.net < 0 ? 'money-neg' : null)
-    ]);
+    /* Re-read this one reservation and refresh only what its charges affect:
+       the totals line here, and the Deducted / Net / Payment cells in the outer
+       row. Nothing else is touched, so the page does not move. */
+    function syncFigures() {
+      var cur = DB.one('SELECT * FROM v_reservations WHERE id = ?', [res.id]) || res;
+
+      U.clear(totals);
+      [
+        stat('Earnings', U.fmtMoney(cur.earnings, 3)),
+        stat('Deducted', U.fmtMoney(cur.cost_paid, 3)),
+        cur.cost_pending > 0.0005
+          ? stat('Pending', U.fmtMoney(cur.cost_pending, 3) + ' (not deducted)')
+          : null,
+        stat('Net', U.fmtMoney(cur.net, 3), cur.net < 0 ? 'money-neg' : null)
+      ].forEach(function (n) { if (n) totals.appendChild(n); });
+
+      if (tr && tr.cells && tr.cells.length >= 11) {
+        tr.cells[8].textContent = U.fmtNum(cur.cost_paid, 2);
+        tr.cells[9].textContent = U.fmtNum(cur.net, 2);
+        tr.cells[9].className = 'num' + (cur.net < 0 ? ' money-neg' : '');
+        U.clear(tr.cells[10]).appendChild(paidBadge(cur));
+      }
+
+      if (onFigures) onFigures();      // keep the table footer in step
+    }
+
+    var table = U.el('table', { class: 'data charge-table' });
+    table.appendChild(U.el('thead', null, [
+      U.el('tr', null, [
+        U.el('th', { class: 'c-name', text: 'Charge' }),
+        U.el('th', { class: 'c-amount num', text: U.currency }),
+        U.el('th', { class: 'c-date', text: 'Date paid' }),
+        U.el('th', { class: 'c-note', text: 'Notes' }),
+        U.el('th', { class: 'c-paid', text: 'Done' })
+      ])
+    ]));
+    var tb = U.el('tbody');
+    DB.CHARGE_KINDS.forEach(function (kind) {
+      tb.appendChild(chargeRow(res, kind, charges[kind.key], syncFigures));
+    });
+    table.appendChild(tb);
+    var rows = U.el('div', { class: 'table-scroll' }, [table]);
+
+    syncFigures();
 
     var actions = U.el('div', { class: 'row', style: 'margin-top:.6rem' }, [
       U.el('button', {
@@ -220,11 +272,18 @@ window.App.Views = window.App.Views || {};
       U.el('option', { value: 'paid', text: 'Fully paid', selected: localFilter.paid === 'paid' })
     ]);
 
-    var totals = rows.reduce(function (a, r) {
-      a.earnings += r.earnings; a.costs += r.cost_paid; a.net += r.net; a.nights += r.nights;
-      a.pending += r.cost_pending;
-      return a;
-    }, { earnings: 0, costs: 0, net: 0, nights: 0, pending: 0 });
+    function sumOf(list) {
+      return list.reduce(function (a, r) {
+        a.earnings += r.earnings; a.costs += r.cost_paid; a.net += r.net;
+        a.nights += r.nights; a.pending += r.cost_pending;
+        return a;
+      }, { earnings: 0, costs: 0, net: 0, nights: 0, pending: 0 });
+    }
+    var totals = sumOf(rows);
+
+    // assigned once the footer exists; charge edits call it to refresh the totals
+    var syncFoot = null;
+    var bumpFoot = function () { if (syncFoot) syncFoot(); };
 
     var card = U.el('div', { class: 'card' });
     card.appendChild(U.el('div', { class: 'card-head' }, [
@@ -297,24 +356,39 @@ window.App.Views = window.App.Views || {};
       if (isOpen) {
         var dtr = U.el('tr', { class: 'detail-row' });
         var td = U.el('td', { colspan: COLS.length });
-        td.appendChild(detailBox(r, function () { App.refresh(); }));
+        td.appendChild(detailBox(r, tr, bumpFoot));
         dtr.appendChild(td);
         tbody.appendChild(dtr);
       }
     });
     table.appendChild(tbody);
 
+    var fEarnings = U.el('td', { class: 'num', text: U.fmtNum(totals.earnings, 2) });
+    var fCosts = U.el('td', { class: 'num', text: U.fmtNum(totals.costs, 2) });
+    var fNet = U.el('td', {
+      class: 'num' + (totals.net < 0 ? ' money-neg' : ''), text: U.fmtNum(totals.net, 2)
+    });
+    var fPending = U.el('td', {
+      class: 'small muted', text: U.fmtNum(totals.pending, 2) + ' pending'
+    });
+
     table.appendChild(U.el('tfoot', null, [
       U.el('tr', null, [
         U.el('td', { colspan: 5, text: 'Total of ' + rows.length + ' shown' }),
         U.el('td', { class: 'num', text: totals.nights }),
         U.el('td'),
-        U.el('td', { class: 'num', text: U.fmtNum(totals.earnings, 2) }),
-        U.el('td', { class: 'num', text: U.fmtNum(totals.costs, 2) }),
-        U.el('td', { class: 'num' + (totals.net < 0 ? ' money-neg' : ''), text: U.fmtNum(totals.net, 2) }),
-        U.el('td', { class: 'small muted', text: U.fmtNum(totals.pending, 2) + ' pending' })
+        fEarnings, fCosts, fNet, fPending
       ])
     ]));
+
+    syncFoot = function () {
+      var t = sumOf(DB.reservations(f));
+      fEarnings.textContent = U.fmtNum(t.earnings, 2);
+      fCosts.textContent = U.fmtNum(t.costs, 2);
+      fNet.textContent = U.fmtNum(t.net, 2);
+      fNet.className = 'num' + (t.net < 0 ? ' money-neg' : '');
+      fPending.textContent = U.fmtNum(t.pending, 2) + ' pending';
+    };
 
     card.appendChild(U.el('div', { class: 'table-scroll' }, [table]));
     root.appendChild(card);

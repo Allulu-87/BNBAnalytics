@@ -340,21 +340,51 @@ tr.detail-row > td { padding: 0; background: var(--surface-2); border-bottom: 1p
 
 /* ── per-booking charges: one table row per charge ──────────────────────── */
 
-table.charge-table { min-width: 620px; }          /* scrolls in .table-scroll */
-table.charge-table td { vertical-align: middle; padding: .3rem .4rem; }
-table.charge-table th { padding: .35rem .4rem; }
+/* Fixed layout at 100% width: this table always fits the open reservation, so
+   filling in a payment never involves a horizontal scroll. Percentages, not
+   pixels, so the columns shrink together instead of forcing an overflow. */
+table.charge-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+table.charge-table th,
+table.charge-table td {
+  padding: .3rem .22rem;
+  vertical-align: middle;
+  white-space: normal;
+}
+table.charge-table th:first-child,
+table.charge-table td:first-child { padding-left: 0; }
+table.charge-table th:last-child,
+table.charge-table td:last-child { padding-right: 0; }
 
-table.charge-table .c-name { min-width: 132px; }
-table.charge-table .c-name strong { display: block; font-size: .82rem; }
-table.charge-table .c-name .hint { font-size: .7rem; color: var(--text-muted); }
-table.charge-table .c-amount { width: 104px; }
-table.charge-table .c-date { width: 158px; }
-table.charge-table .c-note { min-width: 170px; }
-table.charge-table .c-paid { width: 92px; text-align: center; }
+table.charge-table .c-name { width: 26%; }
+table.charge-table .c-amount { width: 17%; }
+table.charge-table .c-date { width: 26%; }
+table.charge-table .c-note { width: 21%; }
+table.charge-table .c-paid { width: 10%; text-align: center; }
 
+table.charge-table .c-name strong { display: block; font-size: .8rem; line-height: 1.25; }
+table.charge-table .c-name .hint { display: none; }      /* no room until wider */
+
+/* more specific than the global mobile input rule, so these stay compact */
 table.charge-table input[type="number"],
-table.charge-table input[type="text"] { min-width: 0; }
+table.charge-table input[type="text"] {
+  font-size: .84rem;
+  min-height: 34px;
+  padding: .3rem .32rem;
+  min-width: 0;
+}
 table.charge-table input[type="checkbox"] { width: 20px; height: 20px; }
+
+@media (min-width: 620px) {
+  table.charge-table .c-name .hint {
+    display: block;
+    font-size: .7rem;
+    color: var(--text-muted);
+  }
+}
 
 table.charge-table tbody tr:hover { background: transparent; }
 table.charge-table tr.is-set td.c-name strong { color: var(--series-1); }

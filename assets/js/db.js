@@ -14,10 +14,10 @@ window.App = window.App || {};
 
   /** Per-booking charge kinds. `auto` rows get seeded on import. */
   DB.CHARGE_KINDS = [
-    { key: 'watchman', label: 'Watchman profit', auto: true, hint: 'per night' },
-    { key: 'tips', label: 'Watchman tips', auto: false, hint: 'free amount' },
-    { key: 'water', label: 'Water bottles', auto: false, hint: 'free amount' },
-    { key: 'fruits', label: 'Fruits', auto: false, hint: 'free amount' }
+    { key: 'watchman', label: 'Watchman profit', short: 'Watchman', auto: true, hint: 'per night' },
+    { key: 'tips', label: 'Watchman tips', short: 'Tips', auto: false, hint: 'free amount' },
+    { key: 'water', label: 'Water bottles', short: 'Water', auto: false, hint: 'free amount' },
+    { key: 'fruits', label: 'Fruits', short: 'Fruits', auto: false, hint: 'free amount' }
   ];
 
   /** Anytime expense categories, in the order the user listed them. */

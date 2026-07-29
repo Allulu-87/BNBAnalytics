@@ -155,6 +155,14 @@ window.App = window.App || {};
     var toTop = !!(opts && opts.toTop);
     var y = toTop ? 0 : (window.pageYOffset || document.documentElement.scrollTop || 0);
 
+    /* Sideways position of each inner scroller, in document order. Rebuilding
+       the view resets scrollLeft to 0, which throws away where the reader was
+       in a wide table. */
+    var prevEl = U.$('#view-' + active);
+    var hScroll = (!toTop && prevEl)
+      ? U.$$('.table-scroll', prevEl).map(function (el) { return el.scrollLeft; })
+      : [];
+
     // flatpickr parks its calendars on <body>; drop them before their inputs go
     App.DP.destroyAll();
 
@@ -179,6 +187,15 @@ window.App = window.App || {};
 
     // inputs are in the document now — flatpickr needs a parent to attach to
     App.DP.mount();
+
+    if (hScroll.length) {
+      var nowEl = U.$('#view-' + active);
+      if (nowEl) {
+        U.$$('.table-scroll', nowEl).forEach(function (el, i) {
+          if (hScroll[i]) el.scrollLeft = hScroll[i];
+        });
+      }
+    }
 
     if (toTop) window.scrollTo(0, 0);
     else if (y) window.scrollTo(0, y);
