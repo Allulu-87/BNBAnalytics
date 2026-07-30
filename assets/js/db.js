@@ -33,7 +33,8 @@ window.App = window.App || {};
     'Gas Bill', 'Electricity Bill', 'Water Bill', 'Internet Bill',
     'Nescafe 3 in 1', 'Toilet Paper', 'Facial Tissue', 'Surface Cleaner',
     'Surface Cleaning Sheets', 'Sugar Bags', 'Tea Bags', 'Dishwashing Liquid',
-    'Cleaning Sponge', 'Slippers', 'Currency Diff', 'Other'
+    'Cleaning Sponge', 'Slippers',
+    'AE to JD Currency Diff', 'Bank Transfer Fees', 'Other'
   ];
 
   var SCHEMA = [
