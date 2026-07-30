@@ -33,7 +33,7 @@ window.App = window.App || {};
     'Gas Bill', 'Electricity Bill', 'Water Bill', 'Internet Bill',
     'Nescafe 3 in 1', 'Toilet Paper', 'Facial Tissue', 'Surface Cleaner',
     'Surface Cleaning Sheets', 'Sugar Bags', 'Tea Bags', 'Dishwashing Liquid',
-    'Cleaning Sponge', 'Slippers', 'Other'
+    'Cleaning Sponge', 'Slippers', 'Currency Diff', 'Other'
   ];
 
   var SCHEMA = [
@@ -344,14 +344,16 @@ window.App = window.App || {};
   /**
    * Fields that belong to Airbnb and may legitimately change between exports.
    *
-   * `keepIfBlank` marks a field where an empty value in the export means "not
-   * supplied", not "cleared" — Airbnb stops including the guest's phone number
-   * once the stay is over, and that must not wipe a number already on file.
-   * A non-empty new value still wins.
+   * Two flags protect detail that Airbnb stops supplying once a stay is over:
+   *   `keepIfBlank`     — an empty value means "not supplied", not "cleared".
+   *   `keepIfTruncated` — a shortened form of what we already hold is a loss of
+   *                       detail, not an update (a full name trimmed to just the
+   *                       first name). Compared word-by-word.
+   * A genuinely different, fuller value still wins in both cases.
    */
   DB.IMPORT_FIELDS = [
     { key: 'status', label: 'Status' },
-    { key: 'guest_name', label: 'Guest' },
+    { key: 'guest_name', label: 'Guest', keepIfBlank: true, keepIfTruncated: true },
     { key: 'contact', label: 'Contact', keepIfBlank: true },
     { key: 'adults', label: 'Adults', int: true },
     { key: 'children', label: 'Children', int: true },

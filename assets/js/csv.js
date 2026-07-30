@@ -194,15 +194,38 @@ window.App = window.App || {};
     return v == null || String(v).trim() === '';
   }
 
+  function nameTokens(v) {
+    return String(v == null ? '' : v).trim().toLowerCase().split(/\s+/).filter(Boolean);
+  }
+
   /**
-   * Carry forward values the export simply didn't supply this time.
-   * Airbnb drops the guest's phone number after checkout; a blank there means
-   * "no longer provided", so the stored number stays. Mutates `rec` before the
-   * diff runs, so a vanished phone number is not reported as a change at all.
+   * Is `next` merely a shortened form of `cur`?
+   *
+   * Airbnb trims a guest's full name down to the first name once the stay is
+   * over ("Abdulwahab Alanazi" → "Abdulwahab"). That is a loss of detail, not a
+   * correction, so the fuller stored name should win. Compared as whole words,
+   * so "Alice" → "Ali" is treated as a real change rather than a truncation.
    */
-  CSV.preserveBlanks = function (cur, rec) {
+  function isTruncationOf(next, cur) {
+    var a = nameTokens(next), b = nameTokens(cur);
+    if (!a.length || a.length >= b.length) return false;
+    return a.every(function (t) { return b.indexOf(t) !== -1; });
+  }
+
+  /**
+   * Keep detail the export no longer carries. Runs before the diff, so a
+   * dropped or shortened value is never even reported as a change.
+   *   keepIfBlank     — an empty value means "not supplied", not "cleared"
+   *   keepIfTruncated — a shorter form of what we hold is a loss, not an update
+   * A genuinely different, fuller value still wins in both cases.
+   */
+  CSV.preserveDetail = function (cur, rec) {
     DB.IMPORT_FIELDS.forEach(function (f) {
       if (f.keepIfBlank && isBlank(rec[f.key]) && !isBlank(cur[f.key])) {
+        rec[f.key] = cur[f.key];
+        return;
+      }
+      if (f.keepIfTruncated && isTruncationOf(rec[f.key], cur[f.key])) {
         rec[f.key] = cur[f.key];
       }
     });
@@ -319,9 +342,9 @@ window.App = window.App || {};
         /* Already on file — but Airbnb details can move after the fact (a guest
            cancels, a date shifts, a payout is corrected). Compare and update
            rather than skipping, so the record stays true to the source.
-           Fields the export omitted are carried forward first, so an absent
-           value never masquerades as a deletion. */
-        CSV.preserveBlanks(current, rec);
+           Detail the export no longer carries is restored first, so an absent or
+           shortened value never masquerades as an edit. */
+        CSV.preserveDetail(current, rec);
         var changes = CSV.diff(current, rec);
         if (changes.length) {
           rec.id = current.id;
