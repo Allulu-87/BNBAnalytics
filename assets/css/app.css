@@ -386,26 +386,15 @@ table.data tbody tr.is-void:hover { background: transparent; }
 
 /* ── Reservation detail drawer ───────────────────────────────────────────── */
 
-tr.detail-row > td { padding: 0; background: var(--surface-2); border-bottom: 1px solid var(--gridline); }
-
-/* The detail cell is as wide as the whole reservations table, so a `100%` width
-   in here would inherit that width — which is why the editor used to need the
-   OUTER table's scrollbar. Size it against the viewport instead, and stick it to
-   the left edge so it stays put if the reservations table is scrolled sideways.
-   Anything that still overflows scrolls in the editor's own .table-scroll. */
-.detail-box {
-  position: sticky;
-  left: 0;
-  box-sizing: border-box;
-  /* Slack covers the page + card padding around it. Too small and the box is
-     wider than its card, which would itself introduce a scrollbar on expand. */
-  width: min(calc(100vw - 5rem), 1320px);
-  padding: .7rem;
-}
-/* below 600px the page padding is at its clamp floor, so less slack is needed */
-@media (max-width: 600px) {
-  .detail-box { width: calc(100vw - 3.75rem); }
-}
+/* The expanded reservation is rendered as its own card BELOW the table, not as a
+   row inside it. Inside a wide table its width was governed by the table (a
+   colspan cell is as wide as every column combined), which is what kept dragging
+   the editor into the table's horizontal scroll. Out here it is an ordinary block
+   in an ordinary card: its width is the card's width, full stop. */
+.detail-card { border-left: 3px solid var(--series-1); }
+.detail-card .card-head { margin-bottom: .6rem; }
+.detail-card .dc-code { font-size: .74rem; color: var(--text-muted); }
+.detail-box { min-width: 0; }
 
 /* the bank-payout switch, above the per-booking charges */
 .payout-box {

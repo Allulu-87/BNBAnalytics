@@ -227,6 +227,8 @@ window.App = window.App || {};
    */
   function render(opts) {
     var toTop = !!(opts && opts.toTop);
+    // CSS selector to bring into view instead of restoring the old position
+    var reveal = (opts && typeof opts.reveal === 'string') ? opts.reveal : null;
     var y = toTop ? 0 : (window.pageYOffset || document.documentElement.scrollTop || 0);
 
     /* Sideways position of each inner scroller, in document order. Rebuilding
@@ -271,11 +273,20 @@ window.App = window.App || {};
       }
     }
 
+    if (reveal) {
+      var target = U.$(reveal);
+      if (target) {
+        target.scrollIntoView({ block: 'nearest' });
+        return;                        // don't fight it by restoring the old y
+      }
+    }
     if (toTop) window.scrollTo(0, 0);
     else if (y) window.scrollTo(0, y);
   }
 
-  App.refresh = function () { render(); };
+  /** @param {{reveal?:string}} [opts] — safe to pass as an event handler, in
+      which case the Event argument simply has none of these fields. */
+  App.refresh = function (opts) { render(opts); };
   App.state = state;
 
   // charts are sized in pixels against the container, so redraw on resize

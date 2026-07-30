@@ -386,6 +386,13 @@ window.App.Views = window.App.Views || {};
     return -1;
   }
 
+  /** Open or close a row. Opening scrolls the detail card into view, since it
+      sits below the table rather than inside it. */
+  function toggleRow(id, isOpen) {
+    openRow = isOpen ? null : id;
+    App.refresh(isOpen ? undefined : { reveal: '.detail-card' });
+  }
+
   App.Views.reservations = function (root) {
     U.clear(root);
     var f = App.state.filter();
@@ -471,6 +478,8 @@ window.App.Views = window.App.Views || {};
     })));
     table.appendChild(thead);
 
+    var openRes = null, openTr = null;   // filled in by the loop below
+
     var tbody = U.el('tbody');
     rows.forEach(function (r) {
       var isOpen = openRow === r.id;
@@ -485,14 +494,12 @@ window.App.Views = window.App.Views || {};
         title: r.is_cancelled ? 'Cancelled — tap to view details' : null,
         onclick: function (e) {
           if (e.target.closest('input,select,button,label,a')) return;
-          openRow = isOpen ? null : r.id;
-          App.refresh();
+          toggleRow(r.id, isOpen);
         },
         onkeydown: function (e) {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            openRow = isOpen ? null : r.id;
-            App.refresh();
+            toggleRow(r.id, isOpen);
           }
         }
       }, [
@@ -510,14 +517,7 @@ window.App.Views = window.App.Views || {};
         U.el('td', null, [paidBadge(r)])
       ]);
       tbody.appendChild(tr);
-
-      if (isOpen) {
-        var dtr = U.el('tr', { class: 'detail-row' });
-        var td = U.el('td', { colspan: COLS.length });
-        td.appendChild(detailBox(r, tr, bumpFoot));
-        dtr.appendChild(td);
-        tbody.appendChild(dtr);
-      }
+      if (isOpen) { openRes = r; openTr = tr; }
     });
     table.appendChild(tbody);
 
@@ -554,5 +554,28 @@ window.App.Views = window.App.Views || {};
 
     card.appendChild(U.el('div', { class: 'table-scroll' }, [table]));
     root.appendChild(card);
+
+    /* The expanded reservation lives here, outside the table, so its width is
+       the card's and nothing it contains can widen the table or ride its
+       horizontal scroll. */
+    if (openRes) {
+      var dCard = U.el('div', { class: 'card detail-card' });
+      dCard.appendChild(U.el('div', { class: 'card-head' }, [
+        U.el('div', { style: 'min-width:0' }, [
+          U.el('h2', { dir: 'auto', text: openRes.guest_name || openRes.confirmation_code }),
+          U.el('div', { class: 'dc-code' }, [
+            openRes.confirmation_code + ' · ' + openRes.listing_name + ' · ' +
+            U.prettyDate(openRes.start_date) + ' → ' + U.prettyDate(openRes.end_date)
+          ])
+        ]),
+        U.el('div', { class: 'spacer' }),
+        U.el('button', {
+          class: 'btn btn-sm', type: 'button',
+          onclick: function () { openRow = null; App.refresh(); }
+        }, ['Close'])
+      ]));
+      dCard.appendChild(detailBox(openRes, openTr, bumpFoot));
+      root.appendChild(dCard);
+    }
   };
 })(window.App);
