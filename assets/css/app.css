@@ -386,15 +386,80 @@ table.data tbody tr.is-void:hover { background: transparent; }
 
 /* ── Reservation detail drawer ───────────────────────────────────────────── */
 
-/* The expanded reservation is rendered as its own card BELOW the table, not as a
-   row inside it. Inside a wide table its width was governed by the table (a
-   colspan cell is as wide as every column combined), which is what kept dragging
-   the editor into the table's horizontal scroll. Out here it is an ordinary block
-   in an ordinary card: its width is the card's width, full stop. */
-.detail-card { border-left: 3px solid var(--series-1); }
-.detail-card .card-head { margin-bottom: .6rem; }
-.detail-card .dc-code { font-size: .74rem; color: var(--text-muted); }
+/* The reservation opens in a modal. Its width comes from the viewport, so it is
+   completely independent of the reservations table — which is what finally
+   settles the horizontal-scroll problem: inside the table, the panel sat in a
+   colspan cell as wide as every column combined. */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+  background: rgba(11, 11, 11, .55);
+  backdrop-filter: blur(2px);
+  animation: fade-in .12s ease-out;
+}
+.modal {
+  display: flex; flex-direction: column;
+  width: 100%; max-width: 46rem;
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  background: var(--plane);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .4);
+  overflow: hidden;
+  animation: modal-in .16s ease-out;
+}
+.modal:focus { outline: none; }
+
+.modal-head {
+  display: flex; align-items: flex-start; gap: .6rem;
+  padding: .75rem .85rem;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+}
+.modal-head .mh-text { flex: 1 1 auto; min-width: 0; }
+.modal-head h2 { font-size: .98rem; }
+.modal-head .mh-sub {
+  margin-top: .15rem;
+  font-size: .74rem; color: var(--text-muted);
+}
+
+.modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: .85rem;
+}
+
 .detail-box { min-width: 0; }
+
+/* While a modal is up the page behind it must not scroll. This has to sit on the
+   root element: `overflow` on <body> alone does not propagate to the viewport, so
+   the page would keep scrolling. Applied via a class that render() recomputes
+   every time, so it can never be left stuck on. */
+html.modal-open,
+html.modal-open body { overflow: hidden; }
+
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(.99); }
+  to { opacity: 1; transform: none; }
+}
+
+/* full-screen sheet on a phone — the native shape for this */
+@media (max-width: 600px) {
+  .modal-backdrop { padding: 0; align-items: stretch; }
+  .modal {
+    max-width: none;
+    max-height: none;
+    height: 100vh;
+    height: 100dvh;
+    border: 0; border-radius: 0;
+  }
+}
 
 /* the bank-payout switch, above the per-booking charges */
 .payout-box {
@@ -528,8 +593,10 @@ table.charge-table tr.is-set td.c-name strong { color: var(--series-1); }
 
 /* ── Toast ──────────────────────────────────────────────────────────────── */
 
+/* Above the modal (200): validation toasts fire while a reservation is open.
+   flatpickr's calendar sits at 99999 and so stays above both. */
 .toast-host {
-  position: fixed; z-index: 80; left: 50%; transform: translateX(-50%);
+  position: fixed; z-index: 400; left: 50%; transform: translateX(-50%);
   bottom: 1rem; display: flex; flex-direction: column; gap: .4rem; align-items: center;
   pointer-events: none; width: max-content; max-width: 92vw;
 }

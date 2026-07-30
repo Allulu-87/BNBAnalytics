@@ -227,8 +227,6 @@ window.App = window.App || {};
    */
   function render(opts) {
     var toTop = !!(opts && opts.toTop);
-    // CSS selector to bring into view instead of restoring the old position
-    var reveal = (opts && typeof opts.reveal === 'string') ? opts.reveal : null;
     var y = toTop ? 0 : (window.pageYOffset || document.documentElement.scrollTop || 0);
 
     /* Sideways position of each inner scroller, in document order. Rebuilding
@@ -273,19 +271,17 @@ window.App = window.App || {};
       }
     }
 
-    if (reveal) {
-      var target = U.$(reveal);
-      if (target) {
-        target.scrollIntoView({ block: 'nearest' });
-        return;                        // don't fight it by restoring the old y
-      }
-    }
+    /* Freeze the page behind a modal. Derived from the DOM on every render
+       rather than toggled by open/close calls, so the lock can never be left
+       stuck on — which would look exactly like the app being unscrollable. */
+    document.documentElement.classList.toggle('modal-open', !!U.$('.modal-backdrop'));
+
     if (toTop) window.scrollTo(0, 0);
     else if (y) window.scrollTo(0, y);
   }
 
-  /** @param {{reveal?:string}} [opts] — safe to pass as an event handler, in
-      which case the Event argument simply has none of these fields. */
+  /** Safe to pass straight to addEventListener: an Event argument simply has
+      none of the option fields render() looks for. */
   App.refresh = function (opts) { render(opts); };
   App.state = state;
 

@@ -386,11 +386,11 @@ window.App.Views = window.App.Views || {};
     return -1;
   }
 
-  /** Open or close a row. Opening scrolls the detail card into view, since it
-      sits below the table rather than inside it. */
+  /** Open or close a row. The detail opens in a modal, so there is nothing to
+      scroll to — the page keeps its position for when it closes. */
   function toggleRow(id, isOpen) {
     openRow = isOpen ? null : id;
-    App.refresh(isOpen ? undefined : { reveal: '.detail-card' });
+    App.refresh();
   }
 
   App.Views.reservations = function (root) {
@@ -555,27 +555,62 @@ window.App.Views = window.App.Views || {};
     card.appendChild(U.el('div', { class: 'table-scroll' }, [table]));
     root.appendChild(card);
 
-    /* The expanded reservation lives here, outside the table, so its width is
-       the card's and nothing it contains can widen the table or ride its
-       horizontal scroll. */
-    if (openRes) {
-      var dCard = U.el('div', { class: 'card detail-card' });
-      dCard.appendChild(U.el('div', { class: 'card-head' }, [
-        U.el('div', { style: 'min-width:0' }, [
-          U.el('h2', { dir: 'auto', text: openRes.guest_name || openRes.confirmation_code }),
-          U.el('div', { class: 'dc-code' }, [
-            openRes.confirmation_code + ' · ' + openRes.listing_name + ' · ' +
-            U.prettyDate(openRes.start_date) + ' → ' + U.prettyDate(openRes.end_date)
+    if (openRes) root.appendChild(reservationModal(openRes, openTr, bumpFoot));
+  };
+
+  /* ── modal ────────────────────────────────────────────────────────────────
+     Opening a reservation in a modal keeps it entirely independent of the
+     reservations table: the panel is sized by the viewport, so nothing it holds
+     can widen the table or get dragged into the table's sideways scroll. */
+
+  function closeModal() {
+    openRow = null;
+    App.refresh();
+  }
+
+  function reservationModal(res, tr, bumpFoot) {
+    var body = U.el('div', { class: 'modal-body' }, [detailBox(res, tr, bumpFoot)]);
+
+    var closeBtn = U.el('button', {
+      class: 'btn btn-icon', type: 'button', 'aria-label': 'Close',
+      onclick: closeModal
+    }, [U.el('span', {
+      html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+        '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" ' +
+        'stroke-linecap="round"/></svg>'
+    })]);
+
+    var modal = U.el('div', {
+      class: 'modal', role: 'dialog', 'aria-modal': 'true', tabindex: '-1',
+      'aria-label': 'Reservation ' + res.confirmation_code,
+      // stop a click inside from reaching the backdrop's dismiss handler
+      onclick: function (e) { e.stopPropagation(); }
+    }, [
+      U.el('div', { class: 'modal-head' }, [
+        U.el('div', { class: 'mh-text' }, [
+          U.el('h2', { dir: 'auto', text: res.guest_name || res.confirmation_code }),
+          U.el('div', { class: 'mh-sub' }, [
+            res.confirmation_code + ' · ' + res.listing_name + ' · ' +
+            U.prettyDate(res.start_date) + ' → ' + U.prettyDate(res.end_date)
           ])
         ]),
-        U.el('div', { class: 'spacer' }),
-        U.el('button', {
-          class: 'btn btn-sm', type: 'button',
-          onclick: function () { openRow = null; App.refresh(); }
-        }, ['Close'])
-      ]));
-      dCard.appendChild(detailBox(openRes, openTr, bumpFoot));
-      root.appendChild(dCard);
-    }
-  };
+        closeBtn
+      ]),
+      body
+    ]);
+
+    var backdrop = U.el('div', {
+      class: 'modal-backdrop',
+      onclick: closeModal,                       // tap outside to dismiss
+      onkeydown: function (e) {
+        // bubbles up from anything focused inside, so no document listener to leak
+        if (e.key === 'Escape') { e.preventDefault(); closeModal(); }
+      }
+    }, [modal]);
+
+    // move focus in, so Escape works and the keyboard lands in the right place
+    setTimeout(function () { if (modal.isConnected !== false) modal.focus(); }, 0);
+
+    return backdrop;
+  }
 })(window.App);
