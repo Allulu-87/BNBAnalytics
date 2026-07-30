@@ -395,51 +395,63 @@ tr.detail-row > td { padding: 0; background: var(--surface-2); border-bottom: 1p
   position: sticky;
   left: 0;
   box-sizing: border-box;
-  width: min(calc(100vw - 4rem), 1320px);
+  /* Slack covers the page + card padding around it. Too small and the box is
+     wider than its card, which would itself introduce a scrollbar on expand. */
+  width: min(calc(100vw - 5rem), 1320px);
   padding: .7rem;
+}
+/* below 600px the page padding is at its clamp floor, so less slack is needed */
+@media (max-width: 600px) {
+  .detail-box { width: calc(100vw - 3.75rem); }
 }
 
 /* ── per-booking charges: one table row per charge ──────────────────────── */
 
-/* Auto layout, so the charge name and the checkbox hug their content instead of
-   being stretched across a fixed share of the row (which left a wide gap between
-   the title and the amount). Notes absorb whatever is left over. */
+/* `table-layout: fixed` is the only layout that CANNOT overflow: the columns
+   divide the available width and shrink together, so the editor never grows a
+   horizontal scrollbar. The shares below sum to 100% and are tuned so the charge
+   name fits without leaving a gap before the amount. */
 table.charge-table {
   width: 100%;
   min-width: 0;
-  table-layout: auto;
+  table-layout: fixed;
 }
 table.charge-table th,
 table.charge-table td {
-  padding: .3rem .22rem;
+  padding: .3rem .2rem;
   vertical-align: middle;
   white-space: normal;
+  overflow: hidden;                 /* a long note can't push the row wider */
 }
 table.charge-table th:first-child,
 table.charge-table td:first-child { padding-left: 0; }
 table.charge-table th:last-child,
 table.charge-table td:last-child { padding-right: 0; }
 
-/* `width: 1%` + nowrap is the shrink-to-fit idiom for an auto-layout table:
-   the column ends up exactly as wide as its content needs. */
-table.charge-table .c-name { width: 1%; white-space: nowrap; }
+table.charge-table .c-name { width: 24%; }
 table.charge-table .c-amount { width: 17%; }
-table.charge-table .c-date { width: 25%; }
-table.charge-table .c-note { width: 30%; }
-table.charge-table .c-paid { width: 1%; white-space: nowrap; text-align: center; }
+table.charge-table .c-date { width: 27%; }
+table.charge-table .c-note { width: 22%; }
+table.charge-table .c-paid { width: 10%; text-align: center; }  /* fits a 20px box */
 
-table.charge-table .c-name strong { display: block; font-size: .8rem; line-height: 1.25; }
+table.charge-table .c-name strong { display: block; font-size: .78rem; line-height: 1.2; }
 table.charge-table .c-name .hint { display: none; }      /* no room until wider */
 
 /* more specific than the global mobile input rule, so these stay compact */
 table.charge-table input[type="number"],
 table.charge-table input[type="text"] {
-  font-size: .84rem;
+  font-size: .82rem;
   min-height: 34px;
-  padding: .3rem .32rem;
+  padding: .3rem .28rem;
   min-width: 0;
+  width: 100%;
 }
-table.charge-table input[type="checkbox"] { width: 20px; height: 20px; }
+/* the calendar glyph costs ~30px of a column that only has ~70px to give */
+table.charge-table .dp-input {
+  background-image: none;
+  padding-right: .28rem;
+}
+table.charge-table input[type="checkbox"] { width: 20px; height: 20px; margin: 0; }
 
 @media (min-width: 620px) {
   table.charge-table .c-name .hint {
