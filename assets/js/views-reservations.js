@@ -21,22 +21,23 @@ window.App.Views = window.App.Views || {};
     });
   }
 
-  /** Earnings as Airbnb reported them, struck through when they don't count. */
+  /** Struck through when cancelled, dimmed when the payout hasn't landed. */
+  function earningsClass(r) {
+    if (r.is_cancelled) return 'num money-void';
+    if (!r.payout_received) return 'num money-awaiting';
+    return 'num';
+  }
+
+  function earningsTitle(r) {
+    if (r.is_cancelled) return 'Cancelled — ' + U.fmtMoney(r.earnings_raw, 3) + ' is not counted';
+    if (!r.payout_received) return 'Not received in the bank yet, so it is not in net profit';
+    return null;
+  }
+
   function earningsCell(r) {
-    if (r.is_cancelled) {
-      return U.el('td', {
-        class: 'num money-void',
-        title: 'Cancelled — ' + U.fmtMoney(r.earnings_raw, 3) + ' is not counted'
-      }, [U.fmtNum(r.earnings_raw, 2)]);
-    }
-    if (!r.payout_received) {
-      // real money, just not arrived — dimmed rather than struck through
-      return U.el('td', {
-        class: 'num money-awaiting',
-        title: 'Not received in the bank yet, so it is not in net profit'
-      }, [U.fmtNum(r.earnings_raw, 2)]);
-    }
-    return U.el('td', { class: 'num', text: U.fmtNum(r.earnings_raw, 2) });
+    return U.el('td', {
+      class: earningsClass(r), title: earningsTitle(r)
+    }, [U.fmtNum(r.earnings_raw, 2)]);
   }
 
   /** Has the Airbnb payout landed in the bank? */
@@ -217,6 +218,7 @@ window.App.Views = window.App.Views || {};
    */
   function payoutControl(res, onChanged) {
     var box = U.el('div', { class: 'payout-box' });
+    var noteEl = U.el('p', { class: 'payout-note' });
 
     var date = U.el('input', {
       type: 'text', value: res.payout_date || '',
@@ -228,6 +230,21 @@ window.App.Views = window.App.Views || {};
     });
     got.checked = !!res.payout_received;
 
+    /** Says which step is still outstanding. Repainted in place — rebuilding the
+        panel would restart the modal's entry animation. */
+    function paintNote(cur) {
+      if (cur.payout_received) {
+        noteEl.textContent = 'Counted in earnings and net profit' +
+          (cur.payout_date ? ', received ' + U.prettyDate(cur.payout_date) : '') + '.';
+      } else if (cur.payout_date) {
+        noteEl.textContent = 'Date saved — tick the box to bring ' +
+          U.fmtMoney(cur.earnings_raw, 3) + ' into earnings and net profit.';
+      } else {
+        noteEl.textContent = U.fmtMoney(cur.earnings_raw, 3) + ' is not in net profit yet. ' +
+          'Pick the date it reached the bank, then tick the box.';
+      }
+    }
+
     function commit() {
       if (got.checked && !U.isISO(date.value)) {
         U.toast('Enter the date the payout reached the bank', true);
@@ -235,28 +252,18 @@ window.App.Views = window.App.Views || {};
       }
       DB.setPayout(res.id, got.checked, date.value || null);
       App.persist();
-      onChanged();
+      onChanged();                  // patches the figures; never re-renders
     }
 
     App.DP.attach(date, { placeholder: 'Not received yet', onPick: commit });
     got.addEventListener('change', commit);
 
-    var note;
-    if (res.payout_received) {
-      note = 'Counted in earnings and net profit' +
-        (res.payout_date ? ', received ' + U.prettyDate(res.payout_date) : '') + '.';
-    } else if (res.payout_date) {
-      note = 'Date saved — tick the box to bring ' + U.fmtMoney(res.earnings_raw, 3) +
-        ' into earnings and net profit.';
-    } else {
-      note = U.fmtMoney(res.earnings_raw, 3) + ' is not in net profit yet. ' +
-        'Pick the date it reached the bank, then tick the box.';
-    }
-
     box.appendChild(U.el('label', { class: 'payout-check' }, [got, 'Payout received in the bank']));
     box.appendChild(U.el('div', { class: 'payout-date' }, [date]));
-    box.appendChild(U.el('p', { class: 'payout-note' }, [note]));
-    return box;
+    box.appendChild(noteEl);
+
+    paintNote(res);
+    return { el: box, paintNote: paintNote };
   }
 
   function deleteButton(res) {
@@ -306,9 +313,12 @@ window.App.Views = window.App.Views || {};
       ]);
     }
 
-    /* Re-read this one reservation and refresh only what its charges affect:
-       the totals line here, and the Deducted / Net / Payment cells in the outer
-       row. Nothing else is touched, so the page does not move. */
+    var payout = null;   // assigned below; syncFigures repaints its note
+
+    /* Re-read this one reservation and patch every figure it affects: the totals
+       line here, the payout note, the row behind the modal, and the table footer.
+       Nothing is rebuilt, so the modal does not flicker and no input in it is
+       destroyed while in use. */
     function syncFigures() {
       var cur = DB.one('SELECT * FROM v_reservations WHERE id = ?', [res.id]) || res;
 
@@ -324,16 +334,8 @@ window.App.Views = window.App.Views || {};
         stat('Net', U.fmtMoney(cur.net, 3), cur.net < 0 ? 'money-neg' : null)
       ].forEach(function (n) { if (n) totals.appendChild(n); });
 
-      /* Indices come from COLS rather than being hard-coded, so adding a column
-         can't silently make this patch the wrong cells. */
-      if (tr && tr.cells && tr.cells.length === COLS.length) {
-        tr.cells[colIndex('cost_paid')].textContent = U.fmtNum(cur.cost_paid, 2);
-        var netCell = tr.cells[colIndex('net')];
-        netCell.textContent = U.fmtNum(cur.net, 2);
-        netCell.className = 'num' + (cur.net < 0 ? ' money-neg' : '');
-        U.clear(tr.cells[COLS.length - 1]).appendChild(paidBadge(cur));
-      }
-
+      if (payout) payout.paintNote(cur);
+      paintRow(tr, cur);
       if (onFigures) onFigures();      // keep the table footer in step
     }
 
@@ -354,12 +356,11 @@ window.App.Views = window.App.Views || {};
     table.appendChild(tb);
     var rows = U.el('div', { class: 'table-scroll' }, [table]);
 
+    payout = payoutControl(res, syncFigures);
     syncFigures();
 
     return U.el('div', { class: 'detail-box' }, [
-      factGrid(res),
-      payoutControl(res, function () { App.refresh(); }),
-      rows, totals, deleteButton(res)
+      factGrid(res), payout.el, rows, totals, deleteButton(res)
     ]);
   }
 
@@ -384,6 +385,32 @@ window.App.Views = window.App.Views || {};
   function colIndex(key) {
     for (var i = 0; i < COLS.length; i++) if (COLS[i].key === key) return i;
     return -1;
+  }
+
+  /**
+   * Repaint every cell of a row that money can change, from a fresh record.
+   * Used instead of re-rendering the view, which would rebuild the modal and
+   * replay its open animation — that is the flicker.
+   * Indices come from COLS, so adding a column can't misdirect it.
+   */
+  function paintRow(tr, cur) {
+    if (!tr || !tr.cells || tr.cells.length !== COLS.length) return;
+
+    var eCell = tr.cells[colIndex('earnings_raw')];
+    eCell.textContent = U.fmtNum(cur.earnings_raw, 2);
+    eCell.className = earningsClass(cur);
+    var t = earningsTitle(cur);
+    if (t) eCell.setAttribute('title', t); else eCell.removeAttribute('title');
+
+    U.clear(tr.cells[colIndex('payout_received')]).appendChild(payoutBadge(cur));
+
+    tr.cells[colIndex('cost_paid')].textContent = U.fmtNum(cur.cost_paid, 2);
+
+    var netCell = tr.cells[colIndex('net')];
+    netCell.textContent = U.fmtNum(cur.net, 2);
+    netCell.className = 'num' + (cur.net < 0 ? ' money-neg' : '');
+
+    U.clear(tr.cells[COLS.length - 1]).appendChild(paidBadge(cur));
   }
 
   /** Open or close a row. The detail opens in a modal, so there is nothing to
