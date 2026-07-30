@@ -83,9 +83,14 @@ window.App.Views = window.App.Views || {};
         hero: true, neg: s.net < 0,
         delta: prev ? deltaBadge(s.net, prev.net) : null
       }));
-    kpi.appendChild(tile('Total earnings', U.fmtMoneyTile(s.earnings),
+    kpi.appendChild(tile('Earnings in bank', U.fmtMoneyTile(s.earnings),
       s.bookings + ' booking' + (s.bookings === 1 ? '' : 's') + ' · ' + s.nights + ' nights' +
       (s.cancelled ? ' · ' + s.cancelled + ' cancelled, excluded' : '')));
+    kpi.appendChild(tile('Awaiting bank', U.fmtMoneyTile(s.awaiting),
+      s.awaitingCount
+        ? s.awaitingCount + ' payout' + (s.awaitingCount === 1 ? '' : 's') + ' not received yet'
+        : 'Every payout has arrived',
+      { neg: s.awaiting > 0 }));
     kpi.appendChild(tile('Per-booking paid', U.fmtMoneyTile(s.bookingCosts),
       s.unpaidBooking > 0.0005
         ? U.fmtMoney(s.unpaidBooking, 2) + ' more not deducted yet'
@@ -95,17 +100,18 @@ window.App.Views = window.App.Views || {};
         ? U.fmtMoney(s.unpaidExpenses, 2) + ' more not deducted yet'
         : s.expenseCount + ' entr' + (s.expenseCount === 1 ? 'y' : 'ies')));
     kpi.appendChild(tile('Pending — not deducted', U.fmtMoneyTile(s.pending),
-      s.pending > 0.0005
-        ? 'Net would be ' + U.fmtMoney(s.netAfterPending, 2) + ' once paid'
+      (s.pending > 0.0005 || s.awaiting > 0.0005)
+        ? 'Net becomes ' + U.fmtMoney(s.netAfterPending, 2) + ' once all settles'
         : 'Everything recorded is paid',
       { neg: s.pending > 0 }));
     kpi.appendChild(tile('Avg earnings / night', U.fmtMoneyTile(s.perNight),
-      'Avg booking ' + U.fmtMoney(s.avgBooking, 2)));
+      'Booked value · avg booking ' + U.fmtMoney(s.avgBooking, 2)));
     root.appendChild(kpi);
 
     root.appendChild(U.el('p', { class: 'small muted', style: 'margin:-.35rem 0 1rem' }, [
-      'Only costs marked as processed are deducted — anything recorded but unpaid ' +
-      'is shown as pending and leaves the earnings untouched.'
+      'Money counts when it actually moves: earnings enter the figures once the ' +
+      'payout is marked received in the bank, and costs are deducted once marked ' +
+      'processed. Everything else sits in “awaiting” or “pending”.'
     ]));
 
     /* ── monthly performance ────────────────────────────────────────────── */
@@ -142,16 +148,18 @@ window.App.Views = window.App.Views || {};
       });
     } else {
       monthCard.appendChild(Charts.table(
-        ['Month', 'Bookings', 'Nights', 'Earnings', 'Booking paid', 'Bills paid', 'Costs paid', 'Net profit', 'Pending'],
+        ['Month', 'Bookings', 'Nights', 'In bank', 'Awaiting', 'Booking paid', 'Bills paid',
+          'Costs paid', 'Net profit', 'Pending'],
         months.map(function (m) {
           return [U.monthLabel(m.k), m.bookings, m.nights, U.fmtNum(m.earnings, 2),
-            U.fmtNum(m.bookingCosts, 2), U.fmtNum(m.expenses, 2), U.fmtNum(m.costs, 2),
-            U.fmtNum(m.net, 2), U.fmtNum(m.pending, 2)];
+            U.fmtNum(m.awaiting, 2), U.fmtNum(m.bookingCosts, 2), U.fmtNum(m.expenses, 2),
+            U.fmtNum(m.costs, 2), U.fmtNum(m.net, 2), U.fmtNum(m.pending, 2)];
         }),
         ['Total',
           months.reduce(function (a, m) { return a + m.bookings; }, 0),
           months.reduce(function (a, m) { return a + m.nights; }, 0),
-          U.fmtNum(s.earnings, 2), U.fmtNum(s.bookingCosts, 2), U.fmtNum(s.expenses, 2),
+          U.fmtNum(s.earnings, 2), U.fmtNum(s.awaiting, 2),
+          U.fmtNum(s.bookingCosts, 2), U.fmtNum(s.expenses, 2),
           U.fmtNum(s.totalCosts, 2), U.fmtNum(s.net, 2), U.fmtNum(s.pending, 2)]
       ));
     }
@@ -260,6 +268,34 @@ window.App.Views = window.App.Views || {};
         due.length > 60 ? ['Showing 60 of ' + due.length, '', '', '', U.fmtNum(s.pending, 2)] : null
       ));
       root.appendChild(dCard);
+    }
+
+    /* ── payouts still in transit ──────────────────────────────────────── */
+
+    var awaiting = An.awaitingPayouts(f);
+    if (awaiting.length) {
+      var aCard = U.el('div', { class: 'card' });
+      aCard.appendChild(U.el('div', { class: 'card-head' }, [
+        U.el('div', null, [
+          U.el('h2', { text: 'Awaiting bank' }),
+          U.el('p', {
+            text: awaiting.length + ' payout' + (awaiting.length === 1 ? '' : 's') +
+              ' totalling ' + U.fmtMoney(s.awaiting, 2) +
+              ' — earned, but not in earnings or net profit until marked received.'
+          })
+        ])
+      ]));
+      aCard.appendChild(Charts.table(
+        ['Guest', 'Code', 'Listing', 'Checked out', 'Amount'],
+        awaiting.slice(0, 60).map(function (a) {
+          return [a.guest_name || '—', a.confirmation_code, a.listing_name,
+            U.prettyDate(a.end_date), U.fmtNum(a.amount, 2)];
+        }),
+        awaiting.length > 60
+          ? ['Showing 60 of ' + awaiting.length, '', '', '', U.fmtNum(s.awaiting, 2)]
+          : null
+      ));
+      root.appendChild(aCard);
     }
 
     /* ── per-booking payments, merged in from its own former tab ────────── */

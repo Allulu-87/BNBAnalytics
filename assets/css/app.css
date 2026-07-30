@@ -381,6 +381,8 @@ table.data tbody tr.is-void:hover { background: transparent; }
 
 /* an amount that exists but is deliberately not counted (cancelled booking) */
 .money-void { color: var(--text-muted); text-decoration: line-through; }
+/* real money that simply hasn't arrived in the bank yet */
+.money-awaiting { color: var(--text-muted); }
 
 /* ── Reservation detail drawer ───────────────────────────────────────────── */
 
@@ -403,6 +405,24 @@ tr.detail-row > td { padding: 0; background: var(--surface-2); border-bottom: 1p
 /* below 600px the page padding is at its clamp floor, so less slack is needed */
 @media (max-width: 600px) {
   .detail-box { width: calc(100vw - 3.75rem); }
+}
+
+/* the bank-payout switch, above the per-booking charges */
+.payout-box {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .8rem;
+  padding: .5rem .6rem; margin-bottom: .7rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.payout-check {
+  display: inline-flex; align-items: center; gap: .45rem;
+  font-size: .82rem; font-weight: 600; color: var(--text-primary); cursor: pointer;
+}
+.payout-check input[type="checkbox"] { width: 20px; height: 20px; margin: 0; }
+.payout-date { flex: 0 1 170px; min-width: 140px; }
+.payout-note {
+  flex: 1 1 100%; margin: 0;
+  font-size: .74rem; color: var(--text-muted);
 }
 
 /* the details the table has no column for (contact, occupancy, booked date) */

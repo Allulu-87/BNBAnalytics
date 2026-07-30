@@ -50,7 +50,11 @@ window.App = window.App || {};
     var r = DB.one(
       'SELECT IFNULL(SUM(CASE WHEN is_cancelled = 0 THEN 1 ELSE 0 END),0) AS bookings,' +
       ' IFNULL(SUM(is_cancelled),0) AS cancelled,' +
-      ' IFNULL(SUM(earnings),0) AS earnings,' +
+      ' IFNULL(SUM(earnings),0) AS earnings,' +               // banked
+      ' IFNULL(SUM(earnings_awaiting),0) AS awaiting,' +      // earned, in transit
+      ' IFNULL(SUM(earnings_eligible),0) AS eligible,' +      // what it is all worth
+      ' IFNULL(SUM(CASE WHEN is_cancelled = 0 AND payout_received = 0 THEN 1 ELSE 0 END),0)' +
+      '   AS awaitingCount,' +
       ' IFNULL(SUM(nights),0) AS nights,' +
       ' IFNULL(SUM(cost_total),0) AS bookingCommitted,' +
       ' IFNULL(SUM(cost_paid),0) AS bookingPaid,' +
@@ -64,7 +68,9 @@ window.App = window.App || {};
       ' IFNULL(SUM(CASE WHEN is_paid = 0 THEN amount ELSE 0 END),0) AS unpaid,' +
       ' COUNT(*) AS n FROM expenses' + ew.sql, ew.params) || {};
 
-    var earnings = r.earnings || 0;
+    var earnings = r.earnings || 0;          // in the bank
+    var awaiting = r.awaiting || 0;          // earned, not yet arrived
+    var eligible = r.eligible || 0;          // earnings + awaiting
     var bookingPaid = r.bookingPaid || 0;
     var expensesPaid = e.paid || 0;
     var deducted = bookingPaid + expensesPaid;
@@ -76,6 +82,11 @@ window.App = window.App || {};
       cancelled: r.cancelled || 0,
       nights: r.nights || 0,
       earnings: earnings,
+
+      // payouts still to arrive — excluded from net until marked received
+      awaiting: awaiting,
+      awaitingCount: r.awaitingCount || 0,
+      earningsEligible: eligible,
 
       // deducted (processed) — what actually reduced the profit
       bookingCosts: bookingPaid,
@@ -96,11 +107,15 @@ window.App = window.App || {};
 
       expenseCount: e.n || 0,
       net: net,
-      netAfterPending: net - pending,
+      // once the payouts land AND the pending costs are paid
+      netAfterPending: eligible - (deducted + pending),
       margin: earnings ? net / earnings : 0,
-      perNight: r.nights ? earnings / r.nights : 0,
+      /* Rate metrics describe what the bookings are worth, so they use eligible
+         earnings — otherwise a night looks worthless purely because its payout
+         has not cleared yet. */
+      perNight: r.nights ? eligible / r.nights : 0,
       netPerNight: r.nights ? net / r.nights : 0,
-      avgBooking: r.bookings ? earnings / r.bookings : 0
+      avgBooking: r.bookings ? eligible / r.bookings : 0
     };
   };
 
@@ -113,6 +128,7 @@ window.App = window.App || {};
     var res = DB.all(
       'SELECT substr(' + (f.basis || 'start_date') + ',1,' + len + ') AS k,' +
       ' IFNULL(SUM(earnings),0) AS earnings,' +
+      ' IFNULL(SUM(earnings_awaiting),0) AS awaiting,' +
       ' IFNULL(SUM(cost_paid),0) AS bookingCosts,' +
       ' IFNULL(SUM(cost_unpaid),0) AS bookingPending,' +
       ' IFNULL(SUM(nights),0) AS nights,' +
@@ -131,7 +147,7 @@ window.App = window.App || {};
     function slot(k) {
       if (!by[k]) {
         by[k] = {
-          k: k, earnings: 0, bookingCosts: 0, expenses: 0,
+          k: k, earnings: 0, awaiting: 0, bookingCosts: 0, expenses: 0,
           bookingPending: 0, expensesPending: 0, nights: 0, bookings: 0
         };
       }
@@ -139,7 +155,8 @@ window.App = window.App || {};
     }
     res.forEach(function (r) {
       var s = slot(r.k);
-      s.earnings = r.earnings; s.bookingCosts = r.bookingCosts;
+      s.earnings = r.earnings; s.awaiting = r.awaiting;
+      s.bookingCosts = r.bookingCosts;
       s.bookingPending = r.bookingPending;
       s.nights = r.nights; s.bookings = r.bookings;
     });
@@ -172,7 +189,7 @@ window.App = window.App || {};
     if (!months.length) months = keys;
     return months.map(function (m) {
       return by[m] || {
-        k: m, earnings: 0, bookingCosts: 0, expenses: 0, costs: 0,
+        k: m, earnings: 0, awaiting: 0, bookingCosts: 0, expenses: 0, costs: 0,
         bookingPending: 0, expensesPending: 0, pending: 0,
         net: 0, nights: 0, bookings: 0
       };
@@ -358,6 +375,17 @@ window.App = window.App || {};
     var pa = new Date(pb.getTime() - (days - 1) * 86400000);
     var isoOf = function (d) { return U.iso(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()); };
     return { from: isoOf(pa), to: isoOf(pb), basis: f.basis, listingId: f.listingId };
+  };
+
+  /** Payouts earned but not yet marked as received in the bank. */
+  An.awaitingPayouts = function (f) {
+    var rw = resWhere(f);
+    return DB.all(
+      'SELECT confirmation_code, guest_name, listing_name, start_date, end_date,' +
+      ' earnings_awaiting AS amount' +
+      ' FROM v_reservations' + rw.sql + (rw.sql ? ' AND' : ' WHERE') +
+      ' is_cancelled = 0 AND payout_received = 0 AND earnings_awaiting > 0' +
+      ' ORDER BY end_date, start_date', rw.params);
   };
 
   /** Outstanding money, itemised — the "who do I still owe" list. */

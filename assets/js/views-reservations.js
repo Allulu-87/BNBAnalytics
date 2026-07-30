@@ -12,7 +12,7 @@ window.App.Views = window.App.Views || {};
 
   var sort = { by: 'start_date', dir: 'desc' };
   var openRow = null;      // reservation id whose editor is expanded
-  var localFilter = { status: '', paid: '' };
+  var localFilter = { status: '', paid: '', payout: '' };
 
   function statusBadge(r) {
     return U.el('span', {
@@ -23,13 +23,35 @@ window.App.Views = window.App.Views || {};
 
   /** Earnings as Airbnb reported them, struck through when they don't count. */
   function earningsCell(r) {
-    if (!r.is_cancelled) {
-      return U.el('td', { class: 'num', text: U.fmtNum(r.earnings_raw, 2) });
+    if (r.is_cancelled) {
+      return U.el('td', {
+        class: 'num money-void',
+        title: 'Cancelled — ' + U.fmtMoney(r.earnings_raw, 3) + ' is not counted'
+      }, [U.fmtNum(r.earnings_raw, 2)]);
     }
-    return U.el('td', {
-      class: 'num money-void',
-      title: 'Cancelled — ' + U.fmtMoney(r.earnings_raw, 3) + ' is not counted'
-    }, [U.fmtNum(r.earnings_raw, 2)]);
+    if (!r.payout_received) {
+      // real money, just not arrived — dimmed rather than struck through
+      return U.el('td', {
+        class: 'num money-awaiting',
+        title: 'Not received in the bank yet, so it is not in net profit'
+      }, [U.fmtNum(r.earnings_raw, 2)]);
+    }
+    return U.el('td', { class: 'num', text: U.fmtNum(r.earnings_raw, 2) });
+  }
+
+  /** Has the Airbnb payout landed in the bank? */
+  function payoutBadge(r) {
+    if (r.is_cancelled) return U.el('span', { class: 'badge muted', text: 'n/a' });
+    if (r.payout_received) {
+      return U.el('span', {
+        class: 'badge paid', text: 'in bank',
+        title: r.payout_date ? 'Received ' + U.prettyDate(r.payout_date) : 'Received'
+      });
+    }
+    return U.el('span', {
+      class: 'badge due', text: 'awaiting',
+      title: 'Not received in the bank yet — excluded from net profit'
+    });
   }
 
   function paidBadge(r) {
@@ -188,6 +210,47 @@ window.App.Views = window.App.Views || {};
     return dl;
   }
 
+  /**
+   * "Payout received in the bank" — the switch that lets a reservation's earnings
+   * into net profit. Deliberately separate from the per-booking charges below it:
+   * those deduct on their own schedule regardless of this.
+   */
+  function payoutControl(res, onChanged) {
+    var box = U.el('div', { class: 'payout-box' });
+
+    var date = U.el('input', {
+      type: 'text', value: res.payout_date || '',
+      'aria-label': 'Date the payout reached the bank'
+    });
+
+    var got = U.el('input', {
+      type: 'checkbox', 'aria-label': 'Payout received in the bank'
+    });
+    got.checked = !!res.payout_received;
+
+    function commit() {
+      if (got.checked && !U.isISO(date.value)) {
+        U.toast('Enter the date the payout reached the bank', true);
+        got.checked = false;
+      }
+      DB.setPayout(res.id, got.checked, date.value || null);
+      App.persist();
+      onChanged();
+    }
+
+    App.DP.attach(date, { placeholder: 'Not received yet', onPick: commit });
+    got.addEventListener('change', commit);
+
+    box.appendChild(U.el('label', { class: 'payout-check' }, [got, 'Payout received in the bank']));
+    box.appendChild(U.el('div', { class: 'payout-date' }, [date]));
+    box.appendChild(U.el('p', { class: 'payout-note' }, [
+      res.payout_received
+        ? 'Counted in total earnings and net profit.'
+        : U.fmtMoney(res.earnings_raw, 3) + ' is not in net profit until this is ticked.'
+    ]));
+    return box;
+  }
+
   function deleteButton(res) {
     return U.el('div', { class: 'row', style: 'margin-top:.6rem' }, [
       U.el('button', {
@@ -244,8 +307,8 @@ window.App.Views = window.App.Views || {};
       U.clear(totals);
       [
         stat('Earnings', U.fmtMoney(cur.earnings_raw, 3) +
-          (cur.is_cancelled ? ' — cancelled, not counted' : ''),
-          cur.is_cancelled ? 'money-neg' : null),
+          (cur.payout_received ? '' : ' — awaiting bank'),
+          cur.payout_received ? null : 'money-neg'),
         stat('Deducted', U.fmtMoney(cur.cost_paid, 3)),
         cur.cost_pending > 0.0005
           ? stat('Pending', U.fmtMoney(cur.cost_pending, 3) + ' (not deducted)')
@@ -253,11 +316,14 @@ window.App.Views = window.App.Views || {};
         stat('Net', U.fmtMoney(cur.net, 3), cur.net < 0 ? 'money-neg' : null)
       ].forEach(function (n) { if (n) totals.appendChild(n); });
 
-      if (tr && tr.cells && tr.cells.length >= 11) {
-        tr.cells[8].textContent = U.fmtNum(cur.cost_paid, 2);
-        tr.cells[9].textContent = U.fmtNum(cur.net, 2);
-        tr.cells[9].className = 'num' + (cur.net < 0 ? ' money-neg' : '');
-        U.clear(tr.cells[10]).appendChild(paidBadge(cur));
+      /* Indices come from COLS rather than being hard-coded, so adding a column
+         can't silently make this patch the wrong cells. */
+      if (tr && tr.cells && tr.cells.length === COLS.length) {
+        tr.cells[colIndex('cost_paid')].textContent = U.fmtNum(cur.cost_paid, 2);
+        var netCell = tr.cells[colIndex('net')];
+        netCell.textContent = U.fmtNum(cur.net, 2);
+        netCell.className = 'num' + (cur.net < 0 ? ' money-neg' : '');
+        U.clear(tr.cells[COLS.length - 1]).appendChild(paidBadge(cur));
       }
 
       if (onFigures) onFigures();      // keep the table footer in step
@@ -283,7 +349,9 @@ window.App.Views = window.App.Views || {};
     syncFigures();
 
     return U.el('div', { class: 'detail-box' }, [
-      factGrid(res), rows, totals, deleteButton(res)
+      factGrid(res),
+      payoutControl(res, function () { App.refresh(); }),
+      rows, totals, deleteButton(res)
     ]);
   }
 
@@ -299,10 +367,16 @@ window.App.Views = window.App.Views || {};
     { key: 'nights_raw', label: 'Nights', num: true },
     { key: 'status', label: 'Status' },
     { key: 'earnings_raw', label: 'Earnings', num: true },
+    { key: 'payout_received', label: 'Payout' },
     { key: 'cost_paid', label: 'Deducted', num: true },
     { key: 'net', label: 'Net', num: true },
     { key: null, label: 'Payment' }
   ];
+
+  function colIndex(key) {
+    for (var i = 0; i < COLS.length; i++) if (COLS[i].key === key) return i;
+    return -1;
+  }
 
   App.Views.reservations = function (root) {
     U.clear(root);
@@ -311,6 +385,7 @@ window.App.Views = window.App.Views || {};
     f.dir = sort.dir;
     f.status = localFilter.status;
     f.paid = localFilter.paid;
+    f.payout = localFilter.payout;
 
     var rows = DB.reservations(f);
 
@@ -330,12 +405,21 @@ window.App.Views = window.App.Views || {};
       U.el('option', { value: 'paid', text: 'Fully paid', selected: localFilter.paid === 'paid' })
     ]);
 
+    var payoutSel = U.el('select', {
+      onchange: function () { localFilter.payout = this.value; App.refresh(); }
+    }, [
+      U.el('option', { value: '', text: 'Any payout state' }),
+      U.el('option', { value: 'awaiting', text: 'Awaiting bank', selected: localFilter.payout === 'awaiting' }),
+      U.el('option', { value: 'received', text: 'Received in bank', selected: localFilter.payout === 'received' })
+    ]);
+
     function sumOf(list) {
       return list.reduce(function (a, r) {
         a.earnings += r.earnings; a.costs += r.cost_paid; a.net += r.net;
         a.nights += r.nights; a.pending += r.cost_pending;
+        a.awaiting += r.earnings_awaiting;
         return a;
-      }, { earnings: 0, costs: 0, net: 0, nights: 0, pending: 0 });
+      }, { earnings: 0, costs: 0, net: 0, nights: 0, pending: 0, awaiting: 0 });
     }
     var totals = sumOf(rows);
 
@@ -351,6 +435,7 @@ window.App.Views = window.App.Views || {};
       ]),
       U.el('div', { class: 'spacer' }),
       U.el('div', { class: 'field', style: 'flex:0 0 auto;min-width:150px' }, [statusSel]),
+      U.el('div', { class: 'field', style: 'flex:0 0 auto;min-width:165px' }, [payoutSel]),
       U.el('div', { class: 'field', style: 'flex:0 0 auto;min-width:170px' }, [paidSel])
     ]));
 
@@ -411,6 +496,7 @@ window.App.Views = window.App.Views || {};
         U.el('td', { class: 'num', text: r.nights_raw }),
         U.el('td', null, [statusBadge(r)]),
         earningsCell(r),
+        U.el('td', null, [payoutBadge(r)]),
         U.el('td', { class: 'num', text: U.fmtNum(r.cost_paid, 2) }),
         U.el('td', { class: 'num' + (r.net < 0 ? ' money-neg' : ''), text: U.fmtNum(r.net, 2) }),
         U.el('td', null, [paidBadge(r)])
@@ -428,6 +514,9 @@ window.App.Views = window.App.Views || {};
     table.appendChild(tbody);
 
     var fEarnings = U.el('td', { class: 'num', text: U.fmtNum(totals.earnings, 2) });
+    var fAwaiting = U.el('td', {
+      class: 'small muted', text: U.fmtNum(totals.awaiting, 2) + ' awaiting'
+    });
     var fCosts = U.el('td', { class: 'num', text: U.fmtNum(totals.costs, 2) });
     var fNet = U.el('td', {
       class: 'num' + (totals.net < 0 ? ' money-neg' : ''), text: U.fmtNum(totals.net, 2)
@@ -441,13 +530,14 @@ window.App.Views = window.App.Views || {};
         U.el('td', { colspan: 5, text: 'Total of ' + rows.length + ' shown' }),
         U.el('td', { class: 'num', text: totals.nights }),
         U.el('td'),
-        fEarnings, fCosts, fNet, fPending
+        fEarnings, fAwaiting, fCosts, fNet, fPending
       ])
     ]));
 
     syncFoot = function () {
       var t = sumOf(DB.reservations(f));
       fEarnings.textContent = U.fmtNum(t.earnings, 2);
+      fAwaiting.textContent = U.fmtNum(t.awaiting, 2) + ' awaiting';
       fCosts.textContent = U.fmtNum(t.costs, 2);
       fNet.textContent = U.fmtNum(t.net, 2);
       fNet.className = 'num' + (t.net < 0 ? ' money-neg' : '');

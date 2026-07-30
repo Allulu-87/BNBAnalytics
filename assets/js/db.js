@@ -64,6 +64,10 @@ window.App = window.App || {};
     "  earnings REAL NOT NULL DEFAULT 0," +
     "  currency TEXT DEFAULT 'JD'," +
     "  imported_at TEXT," +
+    /* Yours, not Airbnb's: has the payout actually landed in the bank?
+       Never written by the importer (see DB.updateReservation). */
+    "  payout_received INTEGER NOT NULL DEFAULT 0," +
+    "  payout_date TEXT," +
     "  UNIQUE (listing_id, confirmation_code)" +
     ");",
 
@@ -95,11 +99,34 @@ window.App = window.App || {};
     "CREATE INDEX IF NOT EXISTS ix_res_code ON reservations(confirmation_code);",
     "CREATE INDEX IF NOT EXISTS ix_chg_res ON booking_charges(reservation_id);",
     "CREATE INDEX IF NOT EXISTS ix_exp_date ON expenses(expense_date);",
-    "CREATE INDEX IF NOT EXISTS ix_exp_cat ON expenses(category);",
+    "CREATE INDEX IF NOT EXISTS ix_exp_cat ON expenses(category);"
+  ];
 
-    /* Views are derived, so they are always rebuilt rather than left at an
-       older definition on a database created by a previous version. Drop the
-       dependent view first. */
+  /* Columns added after the first release. `CREATE TABLE IF NOT EXISTS` does
+     nothing on an existing database, so new columns need an explicit ALTER —
+     and SQLite has no `ADD COLUMN IF NOT EXISTS`, hence the PRAGMA check. */
+  var ADDED_COLUMNS = [
+    ['reservations', 'payout_received', 'INTEGER NOT NULL DEFAULT 0'],
+    ['reservations', 'payout_date', 'TEXT']
+  ];
+
+  /* Everything below is derived from the tables, so it is dropped and rebuilt on
+     every boot rather than left at an older definition. Runs AFTER the ALTERs,
+     because the view reads the columns they add. Drop the dependent view first. */
+  var SCHEMA_VIEWS = (function () {
+    var CANC = "LOWER(IFNULL(r.status,'')) LIKE '%cancel%'";
+    var GOT = 'IFNULL(r.payout_received, 0) = 1';
+
+    // what the booking is worth (0 once cancelled)
+    var ELIGIBLE = 'CASE WHEN ' + CANC + ' THEN 0 ELSE r.earnings END';
+    // what counts today: banked, and not cancelled
+    var COUNTED = 'CASE WHEN ' + CANC + ' OR NOT (' + GOT + ') THEN 0 ELSE r.earnings END';
+    // earned but still to arrive
+    var AWAITING = 'CASE WHEN ' + CANC + ' OR ' + GOT + ' THEN 0 ELSE r.earnings END';
+    // nights follow the stay, not the money, so only cancellation zeroes them
+    var NIGHTS = 'CASE WHEN ' + CANC + ' THEN 0 ELSE r.nights END';
+
+    return [
     "DROP VIEW IF EXISTS v_reservations;",
     "DROP VIEW IF EXISTS v_booking_costs;",
 
@@ -111,17 +138,22 @@ window.App = window.App || {};
     "  SUM(CASE WHEN is_paid = 0 THEN amount ELSE 0 END) AS cost_unpaid " +
     "FROM booking_charges GROUP BY reservation_id;",
 
-    /* One row per reservation with costs and net already resolved.
-       Two rules are baked in here so every caller gets them for free:
+    /* One row per reservation, with money already resolved. Three rules are baked
+       in here so every caller gets them for free:
 
-       1. `net` deducts ONLY charges whose payment has been processed. An amount
-          entered but not yet paid leaves the earnings untouched; that money is
-          `cost_pending`, and `net_after_pending` is the net once it settles.
+       1. Costs deduct ONLY once their payment is processed. An amount entered but
+          not paid leaves the earnings untouched; that is `cost_pending`.
 
-       2. A cancelled booking earns nothing and sells no nights, so `earnings`
-          and `nights` are reported as 0 for it while `earnings_raw` /
-          `nights_raw` keep what Airbnb actually said. Costs are NOT zeroed —
-          if you already paid the watchman, that money really did leave. */
+       2. Earnings count ONLY once the payout has landed in the bank. Until then
+          they sit in `earnings_awaiting` — real, but not yet yours. Per-booking
+          charges are unaffected: they deduct on their own schedule, so a booking
+          can legitimately show a negative net while its payout is in transit.
+
+       3. A cancelled booking is worth nothing and sells no nights.
+
+       So: earnings_raw/nights_raw = what Airbnb said · earnings_eligible = what it
+       is worth · earnings = what counts today · net = earnings − cost_paid ·
+       net_after_pending = the net once everything settles both ways. */
     "CREATE VIEW v_reservations AS " +
     "SELECT r.id, r.confirmation_code, r.listing_id, l.name AS listing_name," +
     "  r.status, r.guest_name, r.contact," +
@@ -129,25 +161,28 @@ window.App = window.App || {};
     "  r.adults + r.children + r.infants AS guests," +
     "  r.start_date, r.end_date, r.booked_date," +
     "  r.currency, r.imported_at," +
-    "  CASE WHEN LOWER(IFNULL(r.status,'')) LIKE '%cancel%' THEN 1 ELSE 0 END AS is_cancelled," +
+    "  IFNULL(r.payout_received, 0) AS payout_received," +
+    "  r.payout_date," +
+    "  CASE WHEN " + CANC + " THEN 1 ELSE 0 END AS is_cancelled," +
     "  r.earnings AS earnings_raw," +
     "  r.nights   AS nights_raw," +
-    "  CASE WHEN LOWER(IFNULL(r.status,'')) LIKE '%cancel%' THEN 0 ELSE r.earnings END AS earnings," +
-    "  CASE WHEN LOWER(IFNULL(r.status,'')) LIKE '%cancel%' THEN 0 ELSE r.nights   END AS nights," +
+    "  " + ELIGIBLE + " AS earnings_eligible," +
+    "  " + COUNTED + " AS earnings," +
+    "  " + AWAITING + " AS earnings_awaiting," +
+    "  " + NIGHTS + " AS nights," +
     "  COALESCE(c.cost_total, 0)  AS cost_total," +
     "  COALESCE(c.cost_paid, 0)   AS cost_paid," +
     "  COALESCE(c.cost_unpaid, 0) AS cost_unpaid," +
     "  COALESCE(c.cost_unpaid, 0) AS cost_pending," +
-    "  (CASE WHEN LOWER(IFNULL(r.status,'')) LIKE '%cancel%' THEN 0 ELSE r.earnings END)" +
-    "    - COALESCE(c.cost_paid, 0) AS net," +
-    "  (CASE WHEN LOWER(IFNULL(r.status,'')) LIKE '%cancel%' THEN 0 ELSE r.earnings END)" +
-    "    - COALESCE(c.cost_total, 0) AS net_after_pending," +
-    "  CASE WHEN LOWER(IFNULL(r.status,'')) LIKE '%cancel%' OR r.nights <= 0 THEN 0" +
+    "  (" + COUNTED + ") - COALESCE(c.cost_paid, 0) AS net," +
+    "  (" + ELIGIBLE + ") - COALESCE(c.cost_total, 0) AS net_after_pending," +
+    "  CASE WHEN " + CANC + " OR r.nights <= 0 THEN 0" +
     "       ELSE r.earnings / r.nights END AS per_night " +
     "FROM reservations r " +
     "JOIN listings l ON l.id = r.listing_id " +
     "LEFT JOIN v_booking_costs c ON c.reservation_id = r.id;"
-  ];
+    ];
+  })();
 
   /* ── boot ─────────────────────────────────────────────────────────────── */
 
@@ -232,8 +267,21 @@ window.App = window.App || {};
     if (from !== SCHEMA_VERSION) DB.setSetting('schema_version', String(SCHEMA_VERSION));
   }
 
+  function tableColumns(table) {
+    return DB.all('PRAGMA table_info(' + table + ')').map(function (c) { return c.name; });
+  }
+
   DB.migrate = function () {
     SCHEMA.forEach(function (stmt) { DB.db.run(stmt); });
+
+    // add any column a previous release didn't have, before the views read it
+    ADDED_COLUMNS.forEach(function (c) {
+      if (tableColumns(c[0]).indexOf(c[1]) === -1) {
+        DB.db.run('ALTER TABLE ' + c[0] + ' ADD COLUMN ' + c[1] + ' ' + c[2]);
+      }
+    });
+
+    SCHEMA_VIEWS.forEach(function (stmt) { DB.db.run(stmt); });
 
     /* Sweep out zero-value rows. Earlier builds could store a 0.00 charge when
        "payment processed" was ticked before an amount was typed; saveCharge no
@@ -398,6 +446,13 @@ window.App = window.App || {};
     DB.run('DELETE FROM reservations WHERE id = ?', [id]);
   };
 
+  /** Mark whether the Airbnb payout has actually reached the bank. Yours, so
+      the importer never touches it. */
+  DB.setPayout = function (id, received, dateISO) {
+    DB.run('UPDATE reservations SET payout_received = ?, payout_date = ? WHERE id = ?',
+      [received ? 1 : 0, received ? (dateISO || null) : null, id]);
+  };
+
   /* ── booking charges ─────────────────────────────────────────────────── */
 
   /** How many charges, and how much, a cancelled booking still holds. Used to
@@ -510,6 +565,8 @@ window.App = window.App || {};
     if (f.status) { w.push('status = ?'); p.push(f.status); }
     if (f.paid === 'due') w.push('cost_unpaid > 0');
     if (f.paid === 'paid') w.push('cost_unpaid = 0 AND cost_total > 0');
+    if (f.payout === 'received') w.push('payout_received = 1');
+    if (f.payout === 'awaiting') w.push('payout_received = 0 AND is_cancelled = 0');
     if (f.q) {
       w.push('(guest_name LIKE ? OR confirmation_code LIKE ? OR IFNULL(contact, \'\') LIKE ?' +
         ' OR listing_name LIKE ?)');
@@ -519,8 +576,10 @@ window.App = window.App || {};
     var order = ({
       start_date: 'start_date', end_date: 'end_date', booked_date: 'booked_date',
       earnings: 'earnings', earnings_raw: 'earnings_raw',
+      earnings_awaiting: 'earnings_awaiting',
       nights: 'nights', nights_raw: 'nights_raw',
       net: 'net', guest_name: 'guest_name', is_cancelled: 'is_cancelled',
+      payout_received: 'payout_received', payout_date: 'payout_date',
       listing_name: 'listing_name', cost_total: 'cost_total', cost_paid: 'cost_paid',
       cost_pending: 'cost_pending', cost_unpaid: 'cost_unpaid', status: 'status',
       confirmation_code: 'confirmation_code'

@@ -14,7 +14,9 @@ window.App.Views = window.App.Views || {};
   function reservationRows(f) {
     var head = ['Confirmation code', 'Listing', 'Status', 'Cancelled', 'Guest', 'Contact',
       'Adults', 'Children', 'Infants', 'Check-in', 'Check-out', 'Nights', 'Booked',
-      'Earnings (Airbnb)', 'Earnings counted', 'Watchman', 'Water bottles', 'Fruits',
+      'Earnings (Airbnb)', 'Payout received', 'Payout date',
+      'Earnings in bank', 'Earnings awaiting bank',
+      'Watchman', 'Water bottles', 'Fruits',
       'Costs recorded', 'Costs paid (deducted)', 'Costs pending (not deducted)',
       'Net profit', 'Currency'];
     var rows = [head];
@@ -26,7 +28,9 @@ window.App.Views = window.App.Views || {};
         r.guest_name || '', r.contact || '',
         r.adults, r.children, r.infants, r.start_date, r.end_date || '', r.nights_raw,
         r.booked_date || '',
-        U.round(r.earnings_raw, 3), U.round(r.earnings, 3),
+        U.round(r.earnings_raw, 3),
+        r.payout_received ? 'Yes' : 'No', r.payout_date || '',
+        U.round(r.earnings, 3), U.round(r.earnings_awaiting, 3),
         amt('watchman'), amt('water'), amt('fruits'),
         U.round(r.cost_total, 3), U.round(r.cost_paid, 3), U.round(r.cost_unpaid, 3),
         U.round(r.net, 3), r.currency || U.currency
@@ -61,11 +65,12 @@ window.App.Views = window.App.Views || {};
     return rows;
   }
 
-  var PERIOD_HEAD = ['Bookings', 'Nights', 'Earnings', 'Booking paid', 'Bills paid',
-    'Costs paid (deducted)', 'Net profit', 'Pending (not deducted)', 'Margin %'];
+  var PERIOD_HEAD = ['Bookings', 'Nights', 'Earnings in bank', 'Awaiting bank',
+    'Booking paid', 'Bills paid', 'Costs paid (deducted)', 'Net profit',
+    'Pending (not deducted)', 'Margin %'];
 
   function periodRow(label, p) {
-    return [label, p.bookings, p.nights, U.round(p.earnings, 3),
+    return [label, p.bookings, p.nights, U.round(p.earnings, 3), U.round(p.awaiting, 3),
       U.round(p.bookingCosts, 3), U.round(p.expenses, 3), U.round(p.costs, 3),
       U.round(p.net, 3), U.round(p.pending, 3),
       p.earnings ? U.round(p.net / p.earnings * 100, 1) : 0];
@@ -96,7 +101,10 @@ window.App.Views = window.App.Views || {};
       ['Bookings (excluding cancelled)', s.bookings],
       ['Cancelled bookings (excluded)', s.cancelled],
       ['Nights', s.nights],
-      ['Total earnings', U.round(s.earnings, 3)],
+      ['Earnings in bank', U.round(s.earnings, 3)],
+      ['Earnings awaiting bank', U.round(s.awaiting, 3)],
+      ['Payouts not received', s.awaitingCount],
+      ['Earnings booked (in bank + awaiting)', U.round(s.earningsEligible, 3)],
       ['', ''],
       ['Deducted — per-booking paid', U.round(s.bookingCosts, 3)],
       ['Deducted — bills paid', U.round(s.expenses, 3)],
