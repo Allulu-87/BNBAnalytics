@@ -241,13 +241,21 @@ window.App.Views = window.App.Views || {};
     App.DP.attach(date, { placeholder: 'Not received yet', onPick: commit });
     got.addEventListener('change', commit);
 
+    var note;
+    if (res.payout_received) {
+      note = 'Counted in earnings and net profit' +
+        (res.payout_date ? ', received ' + U.prettyDate(res.payout_date) : '') + '.';
+    } else if (res.payout_date) {
+      note = 'Date saved — tick the box to bring ' + U.fmtMoney(res.earnings_raw, 3) +
+        ' into earnings and net profit.';
+    } else {
+      note = U.fmtMoney(res.earnings_raw, 3) + ' is not in net profit yet. ' +
+        'Pick the date it reached the bank, then tick the box.';
+    }
+
     box.appendChild(U.el('label', { class: 'payout-check' }, [got, 'Payout received in the bank']));
     box.appendChild(U.el('div', { class: 'payout-date' }, [date]));
-    box.appendChild(U.el('p', { class: 'payout-note' }, [
-      res.payout_received
-        ? 'Counted in total earnings and net profit.'
-        : U.fmtMoney(res.earnings_raw, 3) + ' is not in net profit until this is ticked.'
-    ]));
+    box.appendChild(U.el('p', { class: 'payout-note' }, [note]));
     return box;
   }
 

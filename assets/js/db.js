@@ -446,11 +446,18 @@ window.App = window.App || {};
     DB.run('DELETE FROM reservations WHERE id = ?', [id]);
   };
 
-  /** Mark whether the Airbnb payout has actually reached the bank. Yours, so
-      the importer never touches it. */
+  /**
+   * Mark whether the Airbnb payout has actually reached the bank. Yours, so the
+   * importer never touches it.
+   *
+   * The date is stored independently of the flag — ticking "received" requires a
+   * date, so the date has to survive being set first. (Tying them together meant
+   * the date was discarded the moment it was picked.) Same contract as
+   * booking_charges.date_paid.
+   */
   DB.setPayout = function (id, received, dateISO) {
     DB.run('UPDATE reservations SET payout_received = ?, payout_date = ? WHERE id = ?',
-      [received ? 1 : 0, received ? (dateISO || null) : null, id]);
+      [received ? 1 : 0, dateISO || null, id]);
   };
 
   /* ── booking charges ─────────────────────────────────────────────────── */
