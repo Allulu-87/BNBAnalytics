@@ -45,8 +45,12 @@ window.App = window.App || {};
    */
   An.summary = function (f) {
     var rw = resWhere(f);
+    /* `earnings` and `nights` already read 0 for cancelled bookings (see the
+       v_reservations definition), so only the head-count needs excluding here. */
     var r = DB.one(
-      'SELECT COUNT(*) AS bookings, IFNULL(SUM(earnings),0) AS earnings,' +
+      'SELECT IFNULL(SUM(CASE WHEN is_cancelled = 0 THEN 1 ELSE 0 END),0) AS bookings,' +
+      ' IFNULL(SUM(is_cancelled),0) AS cancelled,' +
+      ' IFNULL(SUM(earnings),0) AS earnings,' +
       ' IFNULL(SUM(nights),0) AS nights,' +
       ' IFNULL(SUM(cost_total),0) AS bookingCommitted,' +
       ' IFNULL(SUM(cost_paid),0) AS bookingPaid,' +
@@ -69,6 +73,7 @@ window.App = window.App || {};
 
     return {
       bookings: r.bookings || 0,
+      cancelled: r.cancelled || 0,
       nights: r.nights || 0,
       earnings: earnings,
 
@@ -110,7 +115,8 @@ window.App = window.App || {};
       ' IFNULL(SUM(earnings),0) AS earnings,' +
       ' IFNULL(SUM(cost_paid),0) AS bookingCosts,' +
       ' IFNULL(SUM(cost_unpaid),0) AS bookingPending,' +
-      ' IFNULL(SUM(nights),0) AS nights, COUNT(*) AS bookings' +
+      ' IFNULL(SUM(nights),0) AS nights,' +
+      ' IFNULL(SUM(CASE WHEN is_cancelled = 0 THEN 1 ELSE 0 END),0) AS bookings' +
       ' FROM v_reservations' + rw.sql +
       ' GROUP BY k HAVING k IS NOT NULL', rw.params);
 

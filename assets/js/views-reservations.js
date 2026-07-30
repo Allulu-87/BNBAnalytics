@@ -14,11 +14,31 @@ window.App.Views = window.App.Views || {};
   var openRow = null;      // reservation id whose editor is expanded
   var localFilter = { status: '', paid: '' };
 
-  function statusBadge(st) {
-    return U.el('span', { class: 'badge', text: st || '—' });
+  function statusBadge(r) {
+    return U.el('span', {
+      class: 'badge' + (r.is_cancelled ? ' due' : ''),
+      text: r.status || '—'
+    });
+  }
+
+  /** Earnings as Airbnb reported them, struck through when they don't count. */
+  function earningsCell(r) {
+    if (!r.is_cancelled) {
+      return U.el('td', { class: 'num', text: U.fmtNum(r.earnings_raw, 2) });
+    }
+    return U.el('td', {
+      class: 'num money-void',
+      title: 'Cancelled — ' + U.fmtMoney(r.earnings_raw, 3) + ' is not counted'
+    }, [U.fmtNum(r.earnings_raw, 2)]);
   }
 
   function paidBadge(r) {
+    if (r.is_cancelled) {
+      return U.el('span', {
+        class: 'badge muted', text: 'n/a',
+        title: 'Cancelled — no payments are tracked against it'
+      });
+    }
     if (!r.cost_total) return U.el('span', { class: 'badge muted', text: 'no costs' });
     if (r.cost_unpaid > 0.0005) {
       return U.el('span', { class: 'badge due', text: U.fmtNum(r.cost_unpaid, 2) + ' due' });
@@ -168,7 +188,9 @@ window.App.Views = window.App.Views || {};
 
       U.clear(totals);
       [
-        stat('Earnings', U.fmtMoney(cur.earnings, 3)),
+        stat('Earnings', U.fmtMoney(cur.earnings_raw, 3) +
+          (cur.is_cancelled ? ' — cancelled, not counted' : ''),
+          cur.is_cancelled ? 'money-neg' : null),
         stat('Deducted', U.fmtMoney(cur.cost_paid, 3)),
         cur.cost_pending > 0.0005
           ? stat('Pending', U.fmtMoney(cur.cost_pending, 3) + ' (not deducted)')
@@ -238,9 +260,10 @@ window.App.Views = window.App.Views || {};
     { key: 'guest_name', label: 'Guest' },
     { key: 'start_date', label: 'Check-in' },
     { key: 'end_date', label: 'Check-out' },
-    { key: 'nights', label: 'Nights', num: true },
+    // these two columns show Airbnb's figures, so they sort by them too
+    { key: 'nights_raw', label: 'Nights', num: true },
     { key: 'status', label: 'Status' },
-    { key: 'earnings', label: 'Earnings', num: true },
+    { key: 'earnings_raw', label: 'Earnings', num: true },
     { key: 'cost_paid', label: 'Deducted', num: true },
     { key: 'net', label: 'Net', num: true },
     { key: null, label: 'Payment' }
@@ -322,31 +345,41 @@ window.App.Views = window.App.Views || {};
 
     var tbody = U.el('tbody');
     rows.forEach(function (r) {
-      var isOpen = openRow === r.id;
-      var tr = U.el('tr', {
-        class: isOpen ? 'is-open' : '', tabindex: 0,
-        style: 'cursor:pointer',
-        onclick: function (e) {
-          if (e.target.closest('input,select,button,label,a')) return;
-          openRow = isOpen ? null : r.id;
-          App.refresh();
-        },
-        onkeydown: function (e) {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
+      /* A cancelled booking is read-only: there are no payments to record
+         against it, so it does not expand at all. */
+      var isOpen = openRow === r.id && !r.is_cancelled;
+
+      var trAttrs = r.is_cancelled
+        ? {
+          class: 'is-void',
+          title: 'Cancelled — nothing to record against it'
+        }
+        : {
+          class: isOpen ? 'is-open' : '', tabindex: 0,
+          style: 'cursor:pointer',
+          onclick: function (e) {
+            if (e.target.closest('input,select,button,label,a')) return;
             openRow = isOpen ? null : r.id;
             App.refresh();
+          },
+          onkeydown: function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              openRow = isOpen ? null : r.id;
+              App.refresh();
+            }
           }
-        }
-      }, [
+        };
+
+      var tr = U.el('tr', trAttrs, [
         U.el('td', null, [U.el('span', { class: 'mono small', text: r.confirmation_code })]),
         U.el('td', { class: 'wrap', text: r.listing_name }),
         U.el('td', { class: 'wrap', dir: 'auto', text: r.guest_name || '—' }),
         U.el('td', { text: U.prettyDate(r.start_date) }),
         U.el('td', { text: U.prettyDate(r.end_date) }),
-        U.el('td', { class: 'num', text: r.nights }),
-        U.el('td', null, [statusBadge(r.status)]),
-        U.el('td', { class: 'num', text: U.fmtNum(r.earnings, 2) }),
+        U.el('td', { class: 'num', text: r.nights_raw }),
+        U.el('td', null, [statusBadge(r)]),
+        earningsCell(r),
         U.el('td', { class: 'num', text: U.fmtNum(r.cost_paid, 2) }),
         U.el('td', { class: 'num' + (r.net < 0 ? ' money-neg' : ''), text: U.fmtNum(r.net, 2) }),
         U.el('td', null, [paidBadge(r)])

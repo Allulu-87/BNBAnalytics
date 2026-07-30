@@ -20,6 +20,13 @@ window.App = window.App || {};
     { key: 'fruits', label: 'Fruits', short: 'Fruits', auto: false, hint: 'free amount' }
   ];
 
+  /** The one definition of "cancelled", shared by SQL and JS. */
+  DB.CANCELLED_SQL = "LOWER(IFNULL(status,'')) LIKE '%cancel%'";
+
+  DB.isCancelledStatus = function (status) {
+    return /cancel/i.test(String(status == null ? '' : status));
+  };
+
   /** Anytime expense categories, in the order the user listed them. */
   DB.EXPENSE_CATEGORIES = [
     'Gas Bill', 'Electricity Bill', 'Water Bill', 'Internet Bill',
@@ -103,24 +110,38 @@ window.App = window.App || {};
     "FROM booking_charges GROUP BY reservation_id;",
 
     /* One row per reservation with costs and net already resolved.
-       `net` deducts ONLY charges whose payment has actually been processed —
-       an amount that has been entered but not yet paid leaves the earnings
-       untouched. `cost_pending` is that committed-but-not-yet-deducted money,
-       and `net_after_pending` is what the net becomes once it is all settled. */
+       Two rules are baked in here so every caller gets them for free:
+
+       1. `net` deducts ONLY charges whose payment has been processed. An amount
+          entered but not yet paid leaves the earnings untouched; that money is
+          `cost_pending`, and `net_after_pending` is the net once it settles.
+
+       2. A cancelled booking earns nothing and sells no nights, so `earnings`
+          and `nights` are reported as 0 for it while `earnings_raw` /
+          `nights_raw` keep what Airbnb actually said. Costs are NOT zeroed —
+          if you already paid the watchman, that money really did leave. */
     "CREATE VIEW v_reservations AS " +
     "SELECT r.id, r.confirmation_code, r.listing_id, l.name AS listing_name," +
     "  r.status, r.guest_name, r.contact," +
     "  r.adults, r.children, r.infants," +
     "  r.adults + r.children + r.infants AS guests," +
-    "  r.start_date, r.end_date, r.nights, r.booked_date," +
-    "  r.earnings, r.currency, r.imported_at," +
+    "  r.start_date, r.end_date, r.booked_date," +
+    "  r.currency, r.imported_at," +
+    "  CASE WHEN LOWER(IFNULL(r.status,'')) LIKE '%cancel%' THEN 1 ELSE 0 END AS is_cancelled," +
+    "  r.earnings AS earnings_raw," +
+    "  r.nights   AS nights_raw," +
+    "  CASE WHEN LOWER(IFNULL(r.status,'')) LIKE '%cancel%' THEN 0 ELSE r.earnings END AS earnings," +
+    "  CASE WHEN LOWER(IFNULL(r.status,'')) LIKE '%cancel%' THEN 0 ELSE r.nights   END AS nights," +
     "  COALESCE(c.cost_total, 0)  AS cost_total," +
     "  COALESCE(c.cost_paid, 0)   AS cost_paid," +
     "  COALESCE(c.cost_unpaid, 0) AS cost_unpaid," +
     "  COALESCE(c.cost_unpaid, 0) AS cost_pending," +
-    "  r.earnings - COALESCE(c.cost_paid, 0) AS net," +
-    "  r.earnings - COALESCE(c.cost_total, 0) AS net_after_pending," +
-    "  CASE WHEN r.nights > 0 THEN r.earnings / r.nights ELSE 0 END AS per_night " +
+    "  (CASE WHEN LOWER(IFNULL(r.status,'')) LIKE '%cancel%' THEN 0 ELSE r.earnings END)" +
+    "    - COALESCE(c.cost_paid, 0) AS net," +
+    "  (CASE WHEN LOWER(IFNULL(r.status,'')) LIKE '%cancel%' THEN 0 ELSE r.earnings END)" +
+    "    - COALESCE(c.cost_total, 0) AS net_after_pending," +
+    "  CASE WHEN LOWER(IFNULL(r.status,'')) LIKE '%cancel%' OR r.nights <= 0 THEN 0" +
+    "       ELSE r.earnings / r.nights END AS per_night " +
     "FROM reservations r " +
     "JOIN listings l ON l.id = r.listing_id " +
     "LEFT JOIN v_booking_costs c ON c.reservation_id = r.id;"
@@ -189,6 +210,9 @@ window.App = window.App || {};
        it is safe to run on every boot. */
     DB.db.run('DELETE FROM booking_charges WHERE amount IS NULL OR amount <= 0');
     DB.db.run('DELETE FROM expenses WHERE amount IS NULL OR amount <= 0');
+
+    // a cancelled booking carries no charges and no dues
+    DB.purgeCancelledCharges();
 
     if (DB.getSetting('schema_version') == null) DB.setSetting('schema_version', '1');
     if (DB.getSetting('watchman_rate') == null) DB.setSetting('watchman_rate', '2');
@@ -282,6 +306,43 @@ window.App = window.App || {};
       [listingId, code]);
   };
 
+  DB.findReservation = function (listingId, code) {
+    return DB.one('SELECT * FROM reservations WHERE listing_id = ? AND confirmation_code = ?',
+      [listingId, code]);
+  };
+
+  /** Fields that belong to Airbnb and may legitimately change between exports. */
+  DB.IMPORT_FIELDS = [
+    { key: 'status', label: 'Status' },
+    { key: 'guest_name', label: 'Guest' },
+    { key: 'contact', label: 'Contact' },
+    { key: 'adults', label: 'Adults', int: true },
+    { key: 'children', label: 'Children', int: true },
+    { key: 'infants', label: 'Infants', int: true },
+    { key: 'start_date', label: 'Check-in' },
+    { key: 'end_date', label: 'Check-out' },
+    { key: 'nights', label: 'Nights', int: true },
+    { key: 'booked_date', label: 'Booked' },
+    { key: 'earnings', label: 'Earnings', money: true },
+    { key: 'currency', label: 'Currency' }
+  ];
+
+  /**
+   * Overwrite the Airbnb-sourced columns of an existing reservation.
+   * booking_charges live in their own table keyed by reservation_id, so the
+   * amounts, dates paid and processed flags you entered are untouched by this.
+   */
+  DB.updateReservation = function (id, r) {
+    DB.run(
+      'UPDATE reservations SET status = ?, guest_name = ?, contact = ?,' +
+      ' adults = ?, children = ?, infants = ?, start_date = ?, end_date = ?,' +
+      ' nights = ?, booked_date = ?, earnings = ?, currency = ?, imported_at = ?' +
+      ' WHERE id = ?',
+      [r.status, r.guest_name, r.contact, r.adults, r.children, r.infants,
+        r.start_date, r.end_date, r.nights, r.booked_date, r.earnings,
+        r.currency, r.imported_at, id]);
+  };
+
   DB.insertReservation = function (r) {
     DB.run(
       'INSERT INTO reservations (confirmation_code, listing_id, status, guest_name, contact,' +
@@ -298,6 +359,31 @@ window.App = window.App || {};
   };
 
   /* ── booking charges ─────────────────────────────────────────────────── */
+
+  /** How many charges, and how much, a cancelled booking still holds. Used to
+      warn before they are cleared. */
+  DB.cancelledChargeLoad = function (reservationId) {
+    return DB.one(
+      'SELECT COUNT(*) AS n, IFNULL(SUM(amount),0) AS total,' +
+      ' IFNULL(SUM(CASE WHEN is_paid = 1 THEN amount ELSE 0 END),0) AS paid' +
+      ' FROM booking_charges WHERE reservation_id = ?', [reservationId]) ||
+      { n: 0, total: 0, paid: 0 };
+  };
+
+  /**
+   * Drop every charge belonging to a cancelled booking.
+   * A cancelled stay has no watchman, no tips, no water, no fruit — so it has
+   * nothing outstanding either. Idempotent, so it is safe on every boot.
+   * @returns {number} rows removed
+   */
+  DB.purgeCancelledCharges = function () {
+    var before = DB.scalar('SELECT COUNT(*) AS n FROM booking_charges') || 0;
+    DB.db.run(
+      'DELETE FROM booking_charges WHERE reservation_id IN' +
+      ' (SELECT id FROM reservations WHERE ' + DB.CANCELLED_SQL + ')');
+    var after = DB.scalar('SELECT COUNT(*) AS n FROM booking_charges') || 0;
+    return before - after;
+  };
 
   DB.chargesFor = function (reservationId) {
     var rows = DB.all('SELECT * FROM booking_charges WHERE reservation_id = ?', [reservationId]);
@@ -392,7 +478,9 @@ window.App = window.App || {};
     // whitelist, because f.sort is interpolated into the SQL rather than bound
     var order = ({
       start_date: 'start_date', end_date: 'end_date', booked_date: 'booked_date',
-      earnings: 'earnings', net: 'net', nights: 'nights', guest_name: 'guest_name',
+      earnings: 'earnings', earnings_raw: 'earnings_raw',
+      nights: 'nights', nights_raw: 'nights_raw',
+      net: 'net', guest_name: 'guest_name', is_cancelled: 'is_cancelled',
       listing_name: 'listing_name', cost_total: 'cost_total', cost_paid: 'cost_paid',
       cost_pending: 'cost_pending', cost_unpaid: 'cost_unpaid', status: 'status',
       confirmation_code: 'confirmation_code'

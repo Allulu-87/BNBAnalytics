@@ -185,16 +185,57 @@ window.App = window.App || {};
     setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1500);
   };
 
+  var MAX_TOASTS = 3;
+
+  function dropToast(el) {
+    if (!el) return;
+    clearTimeout(el._toastTimer);
+    el.style.transition = 'opacity .2s';
+    el.style.opacity = '0';
+    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 220);
+  }
+
+  function armToast(el, bad) {
+    clearTimeout(el._toastTimer);
+    el._toastTimer = setTimeout(function () { dropToast(el); }, bad ? 4200 : 2400);
+  }
+
+  /**
+   * Transient message. Repeating the same one — say, tapping "processed" four
+   * times without an amount — does NOT stack four copies: the toast already on
+   * screen simply has its timer restarted. Unrelated messages still stack, but
+   * never more than MAX_TOASTS at once, so they can't cover the screen.
+   */
   U.toast = function (msg, bad) {
     var host = U.$('#toasts');
     if (!host) return;
-    var t = U.el('div', { class: 'toast' + (bad ? ' bad' : ''), text: msg });
+    msg = String(msg);
+
+    var existing = null;
+    U.$$('.toast', host).forEach(function (el) {
+      if (el.dataset.msg === msg) existing = el;
+    });
+
+    if (existing) {
+      // replay the nudge so a repeat still registers, without new text
+      existing.classList.remove('toast-bump');
+      void existing.offsetWidth;                 // force reflow to restart it
+      existing.classList.add('toast-bump');
+      armToast(existing, bad);
+      return;
+    }
+
+    var t = U.el('div', {
+      class: 'toast' + (bad ? ' bad' : ''),
+      dataset: { msg: msg },
+      text: msg
+    });
     host.appendChild(t);
-    setTimeout(function () {
-      t.style.transition = 'opacity .25s';
-      t.style.opacity = '0';
-      setTimeout(function () { t.remove(); }, 260);
-    }, bad ? 4200 : 2400);
+
+    var all = U.$$('.toast', host);
+    while (all.length > MAX_TOASTS) dropToast(all.shift());
+
+    armToast(t, bad);
   };
 
   App.U = U;

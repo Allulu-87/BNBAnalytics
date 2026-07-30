@@ -317,6 +317,9 @@ table.data tfoot td {
 }
 table.data td.wrap { white-space: normal; min-width: 130px; }
 table.data tr.is-open { background: var(--surface-2); }
+/* cancelled: read-only, so it reads as inert rather than clickable */
+table.data tbody tr.is-void td { color: var(--text-muted); }
+table.data tbody tr.is-void:hover { background: transparent; }
 
 .empty {
   padding: 2rem 1rem; text-align: center; color: var(--text-muted); font-size: .85rem;
@@ -332,6 +335,9 @@ table.data tr.is-open { background: var(--surface-2); }
 .badge.due { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 35%, transparent); }
 
 .money-neg { color: var(--critical); }
+
+/* an amount that exists but is deliberately not counted (cancelled booking) */
+.money-void { color: var(--text-muted); text-decoration: line-through; }
 
 /* ── Reservation detail drawer ───────────────────────────────────────────── */
 
@@ -459,7 +465,16 @@ table.charge-table tr.is-set td.c-name strong { color: var(--series-1); }
   animation: toast-in .16s ease-out;
 }
 .toast.bad { background: var(--critical); color: #fff; }
+
+/* declared after .toast so it wins the `animation` shorthand on re-trigger */
+.toast-bump { animation: toast-bump .22s ease-out; }
+
 @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes toast-bump {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.045); }
+  100% { transform: scale(1); }
+}
 
 /* ── Splash ─────────────────────────────────────────────────────────────── */
 

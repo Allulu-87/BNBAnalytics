@@ -84,7 +84,8 @@ window.App.Views = window.App.Views || {};
         delta: prev ? deltaBadge(s.net, prev.net) : null
       }));
     kpi.appendChild(tile('Total earnings', U.fmtMoneyTile(s.earnings),
-      s.bookings + ' booking' + (s.bookings === 1 ? '' : 's') + ' · ' + s.nights + ' nights'));
+      s.bookings + ' booking' + (s.bookings === 1 ? '' : 's') + ' · ' + s.nights + ' nights' +
+      (s.cancelled ? ' · ' + s.cancelled + ' cancelled, excluded' : '')));
     kpi.appendChild(tile('Per-booking paid', U.fmtMoneyTile(s.bookingCosts),
       s.unpaidBooking > 0.0005
         ? U.fmtMoney(s.unpaidBooking, 2) + ' more not deducted yet'

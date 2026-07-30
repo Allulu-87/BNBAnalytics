@@ -12,9 +12,9 @@ window.App.Views = window.App.Views || {};
   /* ── export builders ──────────────────────────────────────────────────── */
 
   function reservationRows(f) {
-    var head = ['Confirmation code', 'Listing', 'Status', 'Guest', 'Contact',
+    var head = ['Confirmation code', 'Listing', 'Status', 'Cancelled', 'Guest', 'Contact',
       'Adults', 'Children', 'Infants', 'Check-in', 'Check-out', 'Nights', 'Booked',
-      'Earnings', 'Watchman', 'Tips', 'Water bottles', 'Fruits',
+      'Earnings (Airbnb)', 'Earnings counted', 'Watchman', 'Tips', 'Water bottles', 'Fruits',
       'Costs recorded', 'Costs paid (deducted)', 'Costs pending (not deducted)',
       'Net profit', 'Currency'];
     var rows = [head];
@@ -22,9 +22,12 @@ window.App.Views = window.App.Views || {};
       var c = DB.chargesFor(r.id);
       var amt = function (k) { return c[k] ? U.round(c[k].amount, 3) : 0; };
       rows.push([
-        r.confirmation_code, r.listing_name, r.status || '', r.guest_name || '', r.contact || '',
-        r.adults, r.children, r.infants, r.start_date, r.end_date || '', r.nights, r.booked_date || '',
-        U.round(r.earnings, 3), amt('watchman'), amt('tips'), amt('water'), amt('fruits'),
+        r.confirmation_code, r.listing_name, r.status || '', r.is_cancelled ? 'Yes' : 'No',
+        r.guest_name || '', r.contact || '',
+        r.adults, r.children, r.infants, r.start_date, r.end_date || '', r.nights_raw,
+        r.booked_date || '',
+        U.round(r.earnings_raw, 3), U.round(r.earnings, 3),
+        amt('watchman'), amt('tips'), amt('water'), amt('fruits'),
         U.round(r.cost_total, 3), U.round(r.cost_paid, 3), U.round(r.cost_unpaid, 3),
         U.round(r.net, 3), r.currency || U.currency
       ]);
@@ -90,7 +93,8 @@ window.App.Views = window.App.Views || {};
       ['Listing', f.listingId ? (DB.one('SELECT name FROM listings WHERE id = ?', [f.listingId]) || {}).name : 'All listings'],
       ['Currency', U.currency],
       ['', ''],
-      ['Bookings', s.bookings],
+      ['Bookings (excluding cancelled)', s.bookings],
+      ['Cancelled bookings (excluded)', s.cancelled],
       ['Nights', s.nights],
       ['Total earnings', U.round(s.earnings, 3)],
       ['', ''],

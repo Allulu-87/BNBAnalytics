@@ -62,14 +62,17 @@ window.App.Views = window.App.Views || {};
       }
     }, [
       U.el('strong', { text: 'Drop reservations.csv here, or tap to choose' }),
-      U.el('span', { text: 'Airbnb → Reservations → Export. Already-imported bookings are skipped automatically.' })
+      U.el('span', { text: 'Airbnb → Reservations → Export. New bookings are added, changed ones are updated.' })
     ]);
 
     var card = U.el('div', { class: 'card' });
     card.appendChild(U.el('div', { class: 'card-head' }, [
       U.el('div', null, [
         U.el('h2', { text: 'Import reservations' }),
-        U.el('p', { text: 'Matched on listing + confirmation code, so importing the same export twice changes nothing.' })
+        U.el('p', {
+          text: 'Matched on listing + confirmation code. A booking whose Airbnb ' +
+            'details changed is overwritten; your payment entries for it are kept.'
+        })
       ])
     ]));
     card.appendChild(zone);
@@ -117,10 +120,13 @@ window.App.Views = window.App.Views || {};
       return;
     }
 
+    var changed = pending.changedRows || [];
+
     var sum = U.el('div', { class: 'import-summary' }, [
       box(pending.total, 'rows in file'),
       box(pending.newRows.length, 'new to import'),
-      box(pending.dupes.length, 'already imported'),
+      box(changed.length, 'changed — will update'),
+      box(pending.dupes.length, 'unchanged'),
       box(pending.bad.length, 'unreadable')
     ]);
     review.appendChild(sum);
@@ -157,11 +163,89 @@ window.App.Views = window.App.Views || {};
       t.appendChild(tb);
       review.appendChild(U.el('h3', { style: 'margin:.9rem 0 .4rem', text: 'Will be imported' }));
       review.appendChild(U.el('div', { class: 'table-scroll' }, [t]));
-    } else {
+    } else if (!changed.length) {
       review.appendChild(U.el('div', { class: 'notice warn' }, [
-        U.el('strong', { text: 'Nothing new in this file' }),
-        'Every reservation in it is already on file. No changes will be made.'
+        U.el('strong', { text: 'Nothing new or changed in this file' }),
+        'Every reservation in it is already on file and identical. No changes will be made.'
       ]));
+    }
+
+    /* ── what will be overwritten ───────────────────────────────────────── */
+
+    if (changed.length) {
+      review.appendChild(U.el('h3', { style: 'margin:.9rem 0 .4rem', text: 'Will be updated' }));
+      review.appendChild(U.el('p', { class: 'small muted', style: 'margin:0 0 .5rem' }, [
+        'Only the fields below are overwritten. Your watchman, tips, water and ' +
+        'fruit entries for these bookings are not touched.'
+      ]));
+
+      var ct = U.el('table', { class: 'data' });
+      ct.appendChild(U.el('thead', null, [
+        U.el('tr', null, ['Code', 'Guest', 'Field', 'Currently', 'Becomes'].map(function (h) {
+          return U.el('th', { text: h });
+        }))
+      ]));
+      var ctb = U.el('tbody');
+      changed.forEach(function (r) {
+        r.changes.forEach(function (c, i) {
+          ctb.appendChild(U.el('tr', null, [
+            U.el('td', null, [i === 0
+              ? U.el('span', { class: 'mono small', text: r.confirmation_code })
+              : U.el('span', { class: 'muted small', text: '↳' })]),
+            U.el('td', { class: 'wrap', dir: 'auto', text: i === 0 ? (r.guest_name || '—') : '' }),
+            U.el('td', { text: c.label }),
+            U.el('td', { class: 'muted', text: String(c.from) }),
+            U.el('td', null, [U.el('strong', { text: String(c.to) })])
+          ]));
+        });
+      });
+      ct.appendChild(ctb);
+      review.appendChild(U.el('div', { class: 'table-scroll' }, [ct]));
+
+      // a changed night count invalidates the watchman figure, which is the
+      // user's own input — flag it rather than silently rewriting it
+      var nightsMoved = changed.filter(function (r) {
+        return r.changes.some(function (c) { return c.key === 'nights'; });
+      });
+      if (nightsMoved.length) {
+        review.appendChild(U.el('div', { class: 'notice warn', style: 'margin-top:.7rem' }, [
+          U.el('strong', { text: 'Check the watchman amount on ' + nightsMoved.length + ' booking(s)' }),
+          'The night count changed on ' +
+          nightsMoved.map(function (r) { return r.confirmation_code; }).join(', ') +
+          ', so the watchman charge you entered may no longer match. It is left ' +
+          'exactly as you set it — open the booking and use its "use" link if you want the new figure.'
+        ]));
+      }
+
+      var cancelled = changed.filter(function (r) {
+        return r.changes.some(function (c) {
+          return c.key === 'status' && /cancel/i.test(String(c.to));
+        });
+      });
+      if (cancelled.length) {
+        // clearing entered payments is destructive, so say exactly what goes
+        var load = cancelled.reduce(function (a, r) {
+          var l = DB.cancelledChargeLoad(r.id);
+          a.n += l.n; a.total += l.total; a.paid += l.paid;
+          return a;
+        }, { n: 0, total: 0, paid: 0 });
+
+        var msg = 'Their earnings and nights stop counting towards total earnings, ' +
+          'net profit and nights sold, and they become view-only.';
+        if (load.n) {
+          msg += ' ' + load.n + ' payment entr' + (load.n === 1 ? 'y' : 'ies') +
+            ' totalling ' + U.fmtMoney(load.total, 3) +
+            (load.paid > 0.0005 ? ' (' + U.fmtMoney(load.paid, 3) + ' of it marked paid)' : '') +
+            ' will be REMOVED from them. Download a backup first if you want to keep that record.';
+        }
+
+        review.appendChild(U.el('div', {
+          class: 'notice ' + (load.n ? 'bad' : ''), style: 'margin-top:.7rem'
+        }, [
+          U.el('strong', { text: cancelled.length + ' booking(s) became cancelled' }),
+          msg
+        ]));
+      }
     }
 
     if (pending.bad.length) {
@@ -185,27 +269,35 @@ window.App.Views = window.App.Views || {};
     if (pending.dupes.length) {
       var shown = pending.dupes.slice(0, 12).map(function (d) { return d.code; }).join(', ');
       review.appendChild(U.el('p', { class: 'small muted', style: 'margin-top:.8rem' }, [
-        'Skipped as already imported: ' + shown +
+        'Already on file and unchanged: ' + shown +
         (pending.dupes.length > 12 ? ' and ' + (pending.dupes.length - 12) + ' more.' : '.')
       ]));
     }
 
+    var actionBits = [];
+    if (pending.newRows.length) actionBits.push('Import ' + pending.newRows.length + ' new');
+    if (changed.length) actionBits.push('update ' + changed.length);
+
     review.appendChild(U.el('div', { class: 'row', style: 'margin-top:1rem' }, [
       U.el('button', {
         class: 'btn btn-primary', type: 'button',
-        disabled: !pending.newRows.length,
+        disabled: !(pending.newRows.length || changed.length),
         onclick: function () {
           try {
-            var res = CSV.commit(pending.newRows);
+            var res = CSV.commit(pending.newRows, changed);
             App.persist();
-            U.toast('Imported ' + res.inserted + ' reservation' + (res.inserted === 1 ? '' : 's'));
+            var parts = [];
+            if (res.inserted) parts.push('imported ' + res.inserted);
+            if (res.updated) parts.push('updated ' + res.updated);
+            if (res.purged) parts.push('cleared ' + res.purged + ' cancelled charge' + (res.purged === 1 ? '' : 's'));
+            U.toast(parts.length ? parts.join(', ') : 'Nothing to change');
             pending = null;
             App.go('reservations');
           } catch (e) {
             U.toast('Import failed: ' + e.message, true);
           }
         }
-      }, ['Import ' + pending.newRows.length + ' reservation' + (pending.newRows.length === 1 ? '' : 's')]),
+      }, [actionBits.length ? actionBits.join(' · ') : 'Nothing to do']),
       U.el('button', {
         class: 'btn', type: 'button',
         onclick: function () { pending = null; App.refresh(); }

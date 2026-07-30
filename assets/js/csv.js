@@ -188,6 +188,35 @@ window.App = window.App || {};
     return d > 0 ? d : 0;
   }
 
+  /* ── change detection ─────────────────────────────────────────────────── */
+
+  /**
+   * Compare an existing reservation against a freshly parsed one.
+   * @returns {Array<{key,label,from,to}>} one entry per field that moved
+   */
+  CSV.diff = function (cur, rec) {
+    var out = [];
+    DB.IMPORT_FIELDS.forEach(function (f) {
+      var a = cur[f.key], b = rec[f.key];
+      var same;
+      if (f.money) {
+        same = Math.abs(U.parseNum(a) - U.parseNum(b)) < 0.0005;
+      } else if (f.int) {
+        same = Math.round(U.parseNum(a)) === Math.round(U.parseNum(b));
+      } else {
+        same = String(a == null ? '' : a).trim() === String(b == null ? '' : b).trim();
+      }
+      if (!same) {
+        out.push({
+          key: f.key, label: f.label,
+          from: a == null || a === '' ? '—' : a,
+          to: b == null || b === '' ? '—' : b
+        });
+      }
+    });
+    return out;
+  };
+
   /* ── analyse: parse + classify, no writes ─────────────────────────────── */
 
   /**
@@ -222,7 +251,7 @@ window.App = window.App || {};
         .concat(body.slice(0, 300).map(function (r) { return get(r, 'end_date'); }))
     );
 
-    var newRows = [], dupes = [], bad = [];
+    var newRows = [], changedRows = [], dupes = [], bad = [];
     var seenInFile = {};       // catch duplicates *within* one file too
     var now = new Date().toISOString();
 
@@ -265,40 +294,72 @@ window.App = window.App || {};
       seenInFile[fileKey] = true;
 
       var lid = DB.one('SELECT id FROM listings WHERE name = ?', [rec.listing_name]);
-      if (lid && DB.reservationExists(lid.id, code)) {
-        dupes.push({ code: code, listing_name: rec.listing_name, reason: 'already imported' });
+      var current = lid ? DB.findReservation(lid.id, code) : null;
+
+      if (current) {
+        /* Already on file — but Airbnb details can move after the fact (a guest
+           cancels, a date shifts, a payout is corrected). Compare and update
+           rather than skipping, so the record stays true to the source. */
+        var changes = CSV.diff(current, rec);
+        if (changes.length) {
+          rec.id = current.id;
+          rec.changes = changes;
+          changedRows.push(rec);
+        } else {
+          dupes.push({ code: code, listing_name: rec.listing_name, reason: 'no change' });
+        }
         return;
       }
       newRows.push(rec);
     });
 
-    return { ok: true, map: map, missing: [], newRows: newRows, dupes: dupes, bad: bad, dayFirst: dayFirst, total: body.length };
+    return {
+      ok: true, map: map, missing: [],
+      newRows: newRows, changedRows: changedRows, dupes: dupes, bad: bad,
+      dayFirst: dayFirst, total: body.length
+    };
   };
 
-  /** Commit the rows from analyse(). Seeds the auto per-night watchman charge. */
-  CSV.commit = function (newRows) {
+  /**
+   * Commit the rows from analyse().
+   * New reservations are inserted and get the auto per-night watchman charge.
+   * Changed ones are overwritten field-by-field — their booking_charges rows are
+   * never touched, so entered amounts, dates paid and processed flags survive.
+   */
+  CSV.commit = function (newRows, changedRows) {
     var rate = U.parseNum(DB.getSetting('watchman_rate'));
-    var inserted = 0, seeded = 0;
+    var inserted = 0, seeded = 0, updated = 0;
 
     DB.run('BEGIN');
     try {
-      newRows.forEach(function (rec) {
+      (newRows || []).forEach(function (rec) {
         var listingId = DB.listingId(rec.listing_name);
         if (DB.reservationExists(listingId, rec.confirmation_code)) return;
         rec.listing_id = listingId;
         var id = DB.insertReservation(rec);
         inserted++;
-        if (rate > 0 && rec.nights > 0) {
+        // a cancelled stay never gets a watchman charge to begin with
+        if (rate > 0 && rec.nights > 0 && !DB.isCancelledStatus(rec.status)) {
           DB.saveCharge(id, 'watchman', { amount: U.round(rate * rec.nights, 3), is_paid: 0 });
           seeded++;
         }
       });
+
+      (changedRows || []).forEach(function (rec) {
+        if (!rec.id) return;
+        DB.updateReservation(rec.id, rec);
+        updated++;
+      });
+
+      // anything that just became cancelled loses its charges and its dues
+      var purged = DB.purgeCancelledCharges();
+
       DB.run('COMMIT');
+      return { inserted: inserted, seeded: seeded, updated: updated, purged: purged };
     } catch (e) {
       DB.run('ROLLBACK');
       throw e;
     }
-    return { inserted: inserted, seeded: seeded };
   };
 
   App.CSV = CSV;
