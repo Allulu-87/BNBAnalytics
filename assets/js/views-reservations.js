@@ -165,11 +165,66 @@ window.App.Views = window.App.Views || {};
     return tr;
   }
 
+  /** Everything the table row itself has no column for. */
+  function factGrid(res) {
+    var facts = [
+      ['Confirmation', res.confirmation_code],
+      ['Status', res.status || '—'],
+      ['Contact', res.contact || '—'],
+      ['Guests', res.adults + ' adults · ' + res.children + ' children · ' +
+        res.infants + ' infants'],
+      ['Stay', res.nights_raw + ' night' + (res.nights_raw === 1 ? '' : 's') + ' · ' +
+        U.prettyDate(res.start_date) + ' → ' + U.prettyDate(res.end_date)],
+      ['Booked', U.prettyDate(res.booked_date)],
+      ['Earnings', U.fmtMoney(res.earnings_raw, 3) +
+        (res.is_cancelled ? '  (cancelled — not counted)' : '')]
+    ];
+
+    var dl = U.el('dl', { class: 'fact-grid' });
+    facts.forEach(function (f) {
+      dl.appendChild(U.el('dt', { text: f[0] }));
+      dl.appendChild(U.el('dd', { dir: 'auto', text: f[1] }));
+    });
+    return dl;
+  }
+
+  function deleteButton(res) {
+    return U.el('div', { class: 'row', style: 'margin-top:.6rem' }, [
+      U.el('button', {
+        class: 'btn btn-sm btn-danger', type: 'button',
+        onclick: function () {
+          if (!confirm('Delete this reservation and its costs?\n\n' +
+            res.confirmation_code + ' · ' + (res.guest_name || '') +
+            '\n\nIt will come back next time you import a CSV that contains it.')) return;
+          DB.deleteReservation(res.id);
+          App.persist();
+          openRow = null;
+          App.refresh();
+          U.toast('Reservation deleted');
+        }
+      }, ['Delete reservation'])
+    ]);
+  }
+
   /**
    * @param {object} res       the reservation row
    * @param {HTMLElement} tr   its row in the outer table, patched in place
    */
   function detailBox(res, tr, onFigures) {
+    /* A cancelled booking still opens — the contact number and the rest of the
+       details live nowhere else — but it is read-only: no charge editor, because
+       nothing is ever recorded against it. */
+    if (res.is_cancelled) {
+      return U.el('div', { class: 'detail-box' }, [
+        factGrid(res),
+        U.el('p', { class: 'notice', style: 'margin:0' }, [
+          'Cancelled, so it counts for nothing: no earnings, no nights, and no ' +
+          'payments are tracked against it.'
+        ]),
+        deleteButton(res)
+      ]);
+    }
+
     var charges = DB.chargesFor(res.id);
     var totals = U.el('div', { class: 'charge-total' });
 
@@ -227,29 +282,9 @@ window.App.Views = window.App.Views || {};
 
     syncFigures();
 
-    var actions = U.el('div', { class: 'row', style: 'margin-top:.6rem' }, [
-      U.el('button', {
-        class: 'btn btn-sm btn-danger', type: 'button',
-        onclick: function () {
-          if (!confirm('Delete this reservation and its costs?\n\n' +
-            res.confirmation_code + ' · ' + (res.guest_name || '') +
-            '\n\nIt will come back next time you import a CSV that contains it.')) return;
-          DB.deleteReservation(res.id);
-          App.persist();
-          openRow = null;
-          App.refresh();
-          U.toast('Reservation deleted');
-        }
-      }, ['Delete reservation'])
+    return U.el('div', { class: 'detail-box' }, [
+      factGrid(res), rows, totals, deleteButton(res)
     ]);
-
-    var meta = U.el('p', { class: 'small muted', style: 'margin:.1rem 0 .6rem' }, [
-      res.confirmation_code + ' · ' + (res.contact || 'no contact') + ' · ' +
-      res.adults + ' adults, ' + res.children + ' children, ' + res.infants + ' infants · booked ' +
-      U.prettyDate(res.booked_date)
-    ]);
-
-    return U.el('div', { class: 'detail-box' }, [meta, rows, totals, actions]);
   }
 
   /* ── table ────────────────────────────────────────────────────────────── */
@@ -345,33 +380,29 @@ window.App.Views = window.App.Views || {};
 
     var tbody = U.el('tbody');
     rows.forEach(function (r) {
-      /* A cancelled booking is read-only: there are no payments to record
-         against it, so it does not expand at all. */
-      var isOpen = openRow === r.id && !r.is_cancelled;
+      var isOpen = openRow === r.id;
 
-      var trAttrs = r.is_cancelled
-        ? {
-          class: 'is-void',
-          title: 'Cancelled — nothing to record against it'
-        }
-        : {
-          class: isOpen ? 'is-open' : '', tabindex: 0,
-          style: 'cursor:pointer',
-          onclick: function (e) {
-            if (e.target.closest('input,select,button,label,a')) return;
+      /* Every row opens, cancelled included — the contact number and the rest of
+         the details are only reachable there. What differs is the contents:
+         detailBox() gives a cancelled booking a read-only panel. */
+      var tr = U.el('tr', {
+        class: (r.is_cancelled ? 'is-void' : '') + (isOpen ? ' is-open' : ''),
+        tabindex: 0,
+        style: 'cursor:pointer',
+        title: r.is_cancelled ? 'Cancelled — tap to view details' : null,
+        onclick: function (e) {
+          if (e.target.closest('input,select,button,label,a')) return;
+          openRow = isOpen ? null : r.id;
+          App.refresh();
+        },
+        onkeydown: function (e) {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
             openRow = isOpen ? null : r.id;
             App.refresh();
-          },
-          onkeydown: function (e) {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              openRow = isOpen ? null : r.id;
-              App.refresh();
-            }
           }
-        };
-
-      var tr = U.el('tr', trAttrs, [
+        }
+      }, [
         U.el('td', null, [U.el('span', { class: 'mono small', text: r.confirmation_code })]),
         U.el('td', { class: 'wrap', text: r.listing_name }),
         U.el('td', { class: 'wrap', dir: 'auto', text: r.guest_name || '—' }),

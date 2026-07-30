@@ -405,6 +405,17 @@ tr.detail-row > td { padding: 0; background: var(--surface-2); border-bottom: 1p
   .detail-box { width: calc(100vw - 3.75rem); }
 }
 
+/* the details the table has no column for (contact, occupancy, booked date) */
+.fact-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: .18rem .8rem;
+  margin: 0 0 .7rem;
+  font-size: .8rem;
+}
+.fact-grid dt { color: var(--text-muted); white-space: nowrap; }
+.fact-grid dd { margin: 0; font-weight: 500; min-width: 0; overflow-wrap: break-word; }
+
 /* ── per-booking charges: one table row per charge ──────────────────────── */
 
 /* `table-layout: fixed` is the only layout that CANNOT overflow: the columns

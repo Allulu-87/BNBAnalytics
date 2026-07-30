@@ -4,7 +4,7 @@
    for next time. That way edits to the app actually arrive on the following
    load instead of being pinned forever by a cache-first strategy.
    Bump CACHE below to force an immediate full refresh. */
-var CACHE = 'bnb-analytics-v18';
+var CACHE = 'bnb-analytics-v19';
 
 var ASSETS = [
   './',
