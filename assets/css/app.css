@@ -196,6 +196,40 @@ label { font-size: .78rem; color: var(--text-secondary); font-weight: 500; }
 
 .field { display: flex; flex-direction: column; gap: .22rem; min-width: 0; }
 
+/* ── collapsible filter strip ───────────────────────────────────────────── */
+
+.filterwrap { margin-bottom: 1rem; }
+
+.filter-toggle {
+  display: flex; align-items: center; gap: .55rem; width: 100%;
+  appearance: none; cursor: pointer; font: inherit; text-align: left;
+  padding: .5rem .7rem; min-height: 42px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface-1); color: var(--text-primary);
+  box-shadow: var(--shadow);
+}
+.filter-toggle:hover { background: var(--surface-2); }
+.filter-toggle .ft-icon,
+.filter-toggle .ft-chev { flex: none; display: inline-flex; color: var(--text-secondary); }
+.filter-toggle .ft-label { flex: none; font-size: .84rem; font-weight: 600; }
+.filter-toggle .ft-summary {
+  flex: 1 1 auto; min-width: 0;
+  font-size: .78rem; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.filter-toggle .ft-chev { transition: transform .15s ease; }
+.filter-toggle[aria-expanded="true"] .ft-chev { transform: rotate(180deg); }
+
+/* joined to the panel below it while open */
+.filter-toggle[aria-expanded="true"] {
+  border-radius: var(--radius) var(--radius) 0 0;
+  border-bottom-color: transparent;
+}
+.filterwrap .filterbar {
+  margin-bottom: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
 /* One filter row above everything it scopes — never inside a chart card. */
 .filterbar {
   display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-end;
@@ -228,6 +262,15 @@ label { font-size: .78rem; color: var(--text-secondary); font-weight: 500; }
 }
 .card-head .spacer { flex: 1 1 auto; }
 .card-head p { margin: .15rem 0 0; font-size: .78rem; color: var(--text-muted); }
+
+/* separates a major block of cards within one view (e.g. per-booking payments
+   inside the dashboard) */
+.section-head {
+  margin: 1.6rem 0 .8rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.section-head p { margin: .2rem 0 0; font-size: .8rem; color: var(--text-muted); max-width: 46rem; }
 
 /* ── Stat tiles ─────────────────────────────────────────────────────────── */
 

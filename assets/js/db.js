@@ -13,9 +13,9 @@ window.App = window.App || {};
   };
 
   /** Per-booking charge kinds. `auto` rows get seeded on import. */
+  /* Watchman tips moved out to the expenses list — they are not per-booking. */
   DB.CHARGE_KINDS = [
     { key: 'watchman', label: 'Watchman profit', short: 'Watchman', auto: true, hint: 'per night' },
-    { key: 'tips', label: 'Watchman tips', short: 'Tips', auto: false, hint: 'free amount' },
     { key: 'water', label: 'Water bottles', short: 'Water', auto: false, hint: 'free amount' },
     { key: 'fruits', label: 'Fruits', short: 'Fruits', auto: false, hint: 'free amount' }
   ];
@@ -29,6 +29,7 @@ window.App = window.App || {};
 
   /** Anytime expense categories, in the order the user listed them. */
   DB.EXPENSE_CATEGORIES = [
+    'Watchman Salary', 'Watchman Tips',
     'Gas Bill', 'Electricity Bill', 'Water Bill', 'Internet Bill',
     'Nescafe 3 in 1', 'Toilet Paper', 'Facial Tissue', 'Surface Cleaner',
     'Surface Cleaning Sheets', 'Sugar Bags', 'Tea Bags', 'Dishwashing Liquid',
@@ -201,6 +202,35 @@ window.App = window.App || {};
     });
   };
 
+  var SCHEMA_VERSION = 2;
+
+  /**
+   * One-time data moves, keyed off meta.schema_version so they never re-run.
+   * (Structural DDL above is `IF NOT EXISTS` / drop-and-recreate, so it is
+   * safe every boot and does not belong here.)
+   */
+  function runMigrations() {
+    var from = parseInt(DB.getSetting('schema_version') || '1', 10);
+    if (!isFinite(from) || from < 1) from = 1;
+
+    /* v2 — watchman tips stop being a per-booking charge and become an expense.
+       Carry the amount, paid state and date across, and reference the booking in
+       the note so the history is not lost. */
+    if (from < 2) {
+      DB.db.run(
+        "INSERT INTO expenses (category, detail, listing_id, amount, expense_date, date_paid, is_paid, note) " +
+        "SELECT 'Watchman Tips', NULL, r.listing_id, bc.amount," +
+        "  COALESCE(bc.date_paid, r.end_date, r.start_date)," +
+        "  bc.date_paid, bc.is_paid," +
+        "  TRIM(COALESCE(bc.note, '') || ' (moved from booking ' || r.confirmation_code || ')') " +
+        "FROM booking_charges bc JOIN reservations r ON r.id = bc.reservation_id " +
+        "WHERE bc.kind = 'tips' AND bc.amount > 0");
+      DB.db.run("DELETE FROM booking_charges WHERE kind = 'tips'");
+    }
+
+    if (from !== SCHEMA_VERSION) DB.setSetting('schema_version', String(SCHEMA_VERSION));
+  }
+
   DB.migrate = function () {
     SCHEMA.forEach(function (stmt) { DB.db.run(stmt); });
 
@@ -214,7 +244,7 @@ window.App = window.App || {};
     // a cancelled booking carries no charges and no dues
     DB.purgeCancelledCharges();
 
-    if (DB.getSetting('schema_version') == null) DB.setSetting('schema_version', '1');
+    runMigrations();
     if (DB.getSetting('watchman_rate') == null) DB.setSetting('watchman_rate', '2');
     if (DB.getSetting('currency') == null) DB.setSetting('currency', 'JD');
     if (DB.getSetting('decimals') == null) DB.setSetting('decimals', '3');
@@ -311,11 +341,18 @@ window.App = window.App || {};
       [listingId, code]);
   };
 
-  /** Fields that belong to Airbnb and may legitimately change between exports. */
+  /**
+   * Fields that belong to Airbnb and may legitimately change between exports.
+   *
+   * `keepIfBlank` marks a field where an empty value in the export means "not
+   * supplied", not "cleared" — Airbnb stops including the guest's phone number
+   * once the stay is over, and that must not wipe a number already on file.
+   * A non-empty new value still wins.
+   */
   DB.IMPORT_FIELDS = [
     { key: 'status', label: 'Status' },
     { key: 'guest_name', label: 'Guest' },
-    { key: 'contact', label: 'Contact' },
+    { key: 'contact', label: 'Contact', keepIfBlank: true },
     { key: 'adults', label: 'Adults', int: true },
     { key: 'children', label: 'Children', int: true },
     { key: 'infants', label: 'Infants', int: true },

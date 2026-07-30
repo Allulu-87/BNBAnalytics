@@ -15,7 +15,7 @@ window.App.Views = window.App.Views || {};
 
   function blankDraft() {
     return {
-      category: 'Gas Bill', detail: '', listing_id: '', amount: '',
+      category: DB.EXPENSE_CATEGORIES[0], detail: '', listing_id: '', amount: '',
       expense_date: U.todayISO(), is_paid: false, date_paid: '', note: ''
     };
   }

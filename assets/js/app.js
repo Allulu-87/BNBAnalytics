@@ -6,16 +6,17 @@ window.App = window.App || {};
 
   var U = App.U, DB = App.DB, Store = App.Store;
 
+  /* Booking costs is no longer its own tab — it renders as a section inside the
+     Dashboard (see views-charges.js → App.Views.chargesSection). */
   var TABS = [
-    { id: 'dashboard', label: 'Dashboard' },
     { id: 'reservations', label: 'Reservations' },
-    { id: 'charges', label: 'Booking costs' },
     { id: 'expenses', label: 'Expenses' },
+    { id: 'dashboard', label: 'Dashboard' },
     { id: 'import', label: 'Import' },
     { id: 'data', label: 'Data & export' }
   ];
 
-  var active = 'dashboard';
+  var active = 'reservations';
 
   /* ── shared filter state ──────────────────────────────────────────────── */
 
@@ -141,6 +142,79 @@ window.App = window.App || {};
     return bar;
   }
 
+  /* ── collapsed by default ─────────────────────────────────────────────────
+     The filters are occasional, so they start folded away and the choice is
+     remembered. Collapsed, the strip still states what is currently applied —
+     a hidden filter you have forgotten about is worse than no filter. */
+
+  var PRESET_LABEL = {
+    month: 'This month', ytd: 'Year to date', '12m': 'Last 12 months',
+    year: 'This year', all: 'All time'
+  };
+
+  var filtersOpen = false;
+  try { filtersOpen = localStorage.getItem('bnb:filters-open') === '1'; } catch (e) { /* ignore */ }
+
+  function filterSummary() {
+    var bits = [];
+
+    if (state.listingId) {
+      var l = DB.one('SELECT name FROM listings WHERE id = ?', [parseInt(state.listingId, 10)]);
+      bits.push(l ? l.name : 'One listing');
+    } else {
+      bits.push('All listings');
+    }
+
+    if (PRESET_LABEL[state.preset]) bits.push(PRESET_LABEL[state.preset]);
+    else if (state.from || state.to) {
+      bits.push((state.from ? U.prettyDate(state.from) : 'start') +
+        ' – ' + (state.to ? U.prettyDate(state.to) : 'today'));
+    }
+
+    if (state.basis !== 'start_date') bits.push(BASIS_LABEL[state.basis]);
+    if (state.q) bits.push('"' + state.q + '"');
+
+    return bits.join('  ·  ');
+  }
+
+  function filterPanel() {
+    var wrap = U.el('div', { class: 'filterwrap' });
+
+    var chev = U.el('span', {
+      class: 'ft-chev',
+      html: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+        '<path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.2" ' +
+        'stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    });
+
+    wrap.appendChild(U.el('button', {
+      class: 'filter-toggle', type: 'button',
+      'aria-expanded': filtersOpen ? 'true' : 'false',
+      title: filtersOpen ? 'Hide filters' : 'Show filters',
+      onclick: function () {
+        filtersOpen = !filtersOpen;
+        try {
+          localStorage.setItem('bnb:filters-open', filtersOpen ? '1' : '0');
+        } catch (e) { /* private mode — the session still works */ }
+        render();
+      }
+    }, [
+      // wrapped in a span: U.el uses createElement, which cannot make SVG nodes
+      U.el('span', {
+        class: 'ft-icon',
+        html: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+          '<path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="2" ' +
+          'stroke-linecap="round"/></svg>'
+      }),
+      U.el('span', { class: 'ft-label', text: 'Filters' }),
+      U.el('span', { class: 'ft-summary', text: filterSummary() }),
+      chev
+    ]));
+
+    if (filtersOpen) wrap.appendChild(filterBar());
+    return wrap;
+  }
+
   /* ── render ───────────────────────────────────────────────────────────── */
 
   /**
@@ -175,7 +249,7 @@ window.App = window.App || {};
     // whose downloads honour them. Import is the one tab they don't apply to.
     var host = U.$('#filterbar-host');
     U.clear(host);
-    if (active !== 'import') host.appendChild(filterBar());
+    if (active !== 'import') host.appendChild(filterPanel());
 
     TABS.forEach(function (t) {
       var v = U.$('#view-' + t.id);
@@ -299,8 +373,8 @@ window.App = window.App || {};
       ['js/exporter.js', !!A.Ex],
       ['js/charts.js', !!A.Charts],
       ['js/analytics.js', !!A.An],
-      ['js/views (6)', !!(A.Views && A.Views.dashboard && A.Views.reservations &&
-        A.Views.charges && A.Views.expenses && A.Views['import'] && A.Views.data)],
+      ['js/views (5 + section)', !!(A.Views && A.Views.dashboard && A.Views.reservations &&
+        A.Views.chargesSection && A.Views.expenses && A.Views['import'] && A.Views.data)],
       ['WebAssembly support', typeof WebAssembly === 'object']
     ];
     return out;
@@ -409,6 +483,7 @@ window.App = window.App || {};
         var hash = (location.hash || '').replace('#', '');
         if (TABS.some(function (t) { return t.id === hash; })) active = hash;
         else if (!DB.counts().reservations) active = 'import';
+        else active = 'reservations';
 
         var splash = U.$('#splash');
         if (splash) splash.remove();

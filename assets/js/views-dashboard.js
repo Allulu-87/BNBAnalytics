@@ -89,7 +89,7 @@ window.App.Views = window.App.Views || {};
     kpi.appendChild(tile('Per-booking paid', U.fmtMoneyTile(s.bookingCosts),
       s.unpaidBooking > 0.0005
         ? U.fmtMoney(s.unpaidBooking, 2) + ' more not deducted yet'
-        : 'Watchman, tips, water, fruits'));
+        : 'Watchman, water, fruits'));
     kpi.appendChild(tile('Bills paid', U.fmtMoneyTile(s.expenses),
       s.unpaidExpenses > 0.0005
         ? U.fmtMoney(s.unpaidExpenses, 2) + ' more not deducted yet'
@@ -261,6 +261,10 @@ window.App.Views = window.App.Views || {};
       ));
       root.appendChild(dCard);
     }
+
+    /* ── per-booking payments, merged in from its own former tab ────────── */
+
+    if (App.Views.chargesSection) App.Views.chargesSection(root);
 
     // everything is in the document now — safe to measure and draw
     draws.forEach(function (fn) { fn(); });

@@ -1,6 +1,6 @@
 /* BNB Analytics — the per-booking payments, analysed on their own.
-   Watchman profit, tips, water bottles and fruits, broken down by day, month
-   or year, with paid vs. still-owed alongside. */
+   Watchman profit, water bottles and fruits, broken down by day, month or year,
+   with paid vs. still-owed alongside. Rendered as a Dashboard section. */
 window.App = window.App || {};
 window.App.Views = window.App.Views || {};
 
@@ -23,7 +23,7 @@ window.App.Views = window.App.Views || {};
       its rank, so filtering never repaints the survivors. */
   function kindColors() {
     var c = Charts.colors();
-    return { watchman: c.s1, tips: c.s2, water: c.s3, fruits: c.s4 };
+    return { watchman: c.s1, water: c.s2, fruits: c.s3 };
   }
 
   function tile(label, value, foot, opts) {
@@ -43,9 +43,8 @@ window.App.Views = window.App.Views || {};
     return U.el('div', { class: 'tile' + (o.hero ? ' tile-hero' : '') }, kids);
   }
 
+  /** Compact control row for the section head — not a page-level filter bar. */
   function controls(rerender) {
-    var row = U.el('div', { class: 'filterbar', role: 'group', 'aria-label': 'Breakdown options' });
-
     var granBox = U.el('div', { class: 'presets' });
     GRANS.forEach(function (g) {
       granBox.appendChild(U.el('button', {
@@ -62,26 +61,35 @@ window.App.Views = window.App.Views || {};
       return U.el('option', { value: k, text: An.CHARGE_BASES[k], selected: basis === k });
     }));
 
-    row.appendChild(U.el('div', { class: 'field', style: 'flex:1 1 240px' }, [
-      U.el('label', { text: 'Group' }), granBox
-    ]));
-    row.appendChild(U.el('div', { class: 'field wide' }, [
-      U.el('label', { text: 'Count each payment on' }), basisSel
-    ]));
-    return row;
+    return U.el('div', {
+      class: 'row', style: 'gap:.5rem', role: 'group', 'aria-label': 'Breakdown options'
+    }, [
+      granBox,
+      U.el('div', { style: 'flex:0 1 200px;min-width:150px' }, [basisSel])
+    ]);
   }
 
-  App.Views.charges = function (root) {
-    U.clear(root);
+  /**
+   * The per-booking payments analysis, appended to whatever container it is
+   * given. It is a section of the Dashboard rather than a tab of its own, so it
+   * does NOT clear `root` — the dashboard owns that.
+   */
+  App.Views.chargesSection = function (root) {
     // go through render() so the scroll position survives the rebuild
     var rerender = App.refresh;
     var f = App.state.filter();
     var col = kindColors();
     var draws = [];
 
-    root.appendChild(controls(rerender));
-
     var sum = An.chargeSummary(f, basis);
+
+    root.appendChild(U.el('div', { class: 'section-head' }, [
+      U.el('h2', { text: 'Per-booking payments' }),
+      U.el('p', {
+        text: 'Watchman, water and fruits on their own. Everything recorded is ' +
+          'counted here; only the paid part is deducted from the profit above.'
+      })
+    ]));
 
     if (!sum.total.n) {
       root.appendChild(U.el('div', { class: 'card' }, [
@@ -90,36 +98,13 @@ window.App.Views = window.App.Views || {};
           U.el('p', {
             class: 'small muted',
             text: basis === 'date_paid'
-              ? 'Nothing has been marked as paid yet — switch to "When the booking happened" to include unpaid charges.'
-              : 'Open a booking on the Reservations tab to record the watchman, tips, water and fruit costs.'
+              ? 'Nothing is marked as paid yet — set the basis to "When the booking happened" to include unpaid charges.'
+              : 'Open a booking on the Reservations tab to record the watchman, water and fruit costs.'
           })
         ])
       ]));
       return;
     }
-
-    /* ── tiles ──────────────────────────────────────────────────────────── */
-
-    var kpi = U.el('div', { class: 'kpi-grid' });
-    kpi.appendChild(tile('Total per-booking payments', U.fmtMoneyTile(sum.total.amount),
-      sum.total.n + ' charges · ' + U.fmtMoney(sum.total.perNight, 3) + ' per night',
-      { hero: true }));
-    sum.kinds.forEach(function (k) {
-      kpi.appendChild(tile(k.label, U.fmtMoneyTile(k.amount),
-        k.n
-          ? k.n + ' entries · ' + U.fmtMoney(k.unpaid, 2) + ' unpaid'
-          : 'nothing recorded',
-        { color: col[k.key] }));
-    });
-    kpi.appendChild(tile('Still to pay', U.fmtMoneyTile(sum.total.unpaid),
-      U.fmtMoney(sum.total.paid, 2) + ' paid and deducted',
-      { neg: sum.total.unpaid > 0 }));
-    root.appendChild(kpi);
-
-    root.appendChild(U.el('p', { class: 'small muted', style: 'margin:-.35rem 0 1rem' }, [
-      'Totals here are everything recorded. Only the paid portion is deducted from ' +
-      'profit on the Dashboard — the rest stays pending.'
-    ]));
 
     /* ── over time ─────────────────────────────────────────────────────── */
 
@@ -136,10 +121,10 @@ window.App.Views = window.App.Views || {};
     var card = U.el('div', { class: 'card' });
     card.appendChild(U.el('div', { class: 'card-head' }, [
       U.el('div', null, [
-        U.el('h2', { text: 'Per-booking payments over time' }),
+        U.el('h3', { text: 'Over time' }),
         U.el('p', {
-          text: 'Stacked by charge type, ' + gran + ' by ' + gran + ', in ' + U.currency +
-            ' · ' + An.CHARGE_BASES[basis].toLowerCase() + '.'
+          text: 'Stacked by charge type, in ' + U.currency + ' · ' +
+            An.CHARGE_BASES[basis].toLowerCase() + '.'
         })
       ]),
       U.el('div', { class: 'spacer' }),
@@ -152,6 +137,8 @@ window.App.Views = window.App.Views || {};
           }, [p[1]]);
         }))
     ]));
+    // grouping + basis belong to this section, so they sit in its own head
+    card.appendChild(U.el('div', { style: 'margin:-.35rem 0 .8rem' }, [controls(rerender)]));
 
     if (mode === 'chart' && series.length) {
       card.appendChild(Charts.legend(series));
@@ -176,7 +163,7 @@ window.App.Views = window.App.Views || {};
       var detail = U.el('div', { class: 'card' });
       detail.appendChild(U.el('div', { class: 'card-head' }, [
         U.el('div', null, [
-          U.el('h2', { text: 'Full breakdown' }),
+          U.el('h3', { text: 'Full breakdown' }),
           U.el('p', { text: 'Every period with a payment, and what it was made of.' })
         ])
       ]));
@@ -189,12 +176,12 @@ window.App.Views = window.App.Views || {};
     var kindCard = U.el('div', { class: 'card' });
     kindCard.appendChild(U.el('div', { class: 'card-head' }, [
       U.el('div', null, [
-        U.el('h2', { text: 'By charge type' }),
+        U.el('h3', { text: 'By charge type' }),
         U.el('p', { text: 'Share of the per-booking total, and what is still owed.' })
       ])
     ]));
     kindCard.appendChild(Charts.table(
-      ['Charge', 'Bookings', 'Entries', 'Amount', 'Share', 'Paid', 'Unpaid'],
+      ['Charge', 'Bookings', 'Entries', 'Amount', 'Share', 'Paid', 'Pending'],
       sum.kinds.map(function (k) {
         return [k.label, k.bookings, k.n, U.fmtNum(k.amount, 2),
           (sum.total.amount ? U.fmtNum(k.amount / sum.total.amount * 100, 1) : '0.0') + '%',

@@ -14,7 +14,7 @@ window.App.Views = window.App.Views || {};
   function reservationRows(f) {
     var head = ['Confirmation code', 'Listing', 'Status', 'Cancelled', 'Guest', 'Contact',
       'Adults', 'Children', 'Infants', 'Check-in', 'Check-out', 'Nights', 'Booked',
-      'Earnings (Airbnb)', 'Earnings counted', 'Watchman', 'Tips', 'Water bottles', 'Fruits',
+      'Earnings (Airbnb)', 'Earnings counted', 'Watchman', 'Water bottles', 'Fruits',
       'Costs recorded', 'Costs paid (deducted)', 'Costs pending (not deducted)',
       'Net profit', 'Currency'];
     var rows = [head];
@@ -27,7 +27,7 @@ window.App.Views = window.App.Views || {};
         r.adults, r.children, r.infants, r.start_date, r.end_date || '', r.nights_raw,
         r.booked_date || '',
         U.round(r.earnings_raw, 3), U.round(r.earnings, 3),
-        amt('watchman'), amt('tips'), amt('water'), amt('fruits'),
+        amt('watchman'), amt('water'), amt('fruits'),
         U.round(r.cost_total, 3), U.round(r.cost_paid, 3), U.round(r.cost_unpaid, 3),
         U.round(r.net, 3), r.currency || U.currency
       ]);

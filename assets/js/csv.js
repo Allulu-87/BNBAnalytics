@@ -190,6 +190,25 @@ window.App = window.App || {};
 
   /* ── change detection ─────────────────────────────────────────────────── */
 
+  function isBlank(v) {
+    return v == null || String(v).trim() === '';
+  }
+
+  /**
+   * Carry forward values the export simply didn't supply this time.
+   * Airbnb drops the guest's phone number after checkout; a blank there means
+   * "no longer provided", so the stored number stays. Mutates `rec` before the
+   * diff runs, so a vanished phone number is not reported as a change at all.
+   */
+  CSV.preserveBlanks = function (cur, rec) {
+    DB.IMPORT_FIELDS.forEach(function (f) {
+      if (f.keepIfBlank && isBlank(rec[f.key]) && !isBlank(cur[f.key])) {
+        rec[f.key] = cur[f.key];
+      }
+    });
+    return rec;
+  };
+
   /**
    * Compare an existing reservation against a freshly parsed one.
    * @returns {Array<{key,label,from,to}>} one entry per field that moved
@@ -299,7 +318,10 @@ window.App = window.App || {};
       if (current) {
         /* Already on file — but Airbnb details can move after the fact (a guest
            cancels, a date shifts, a payout is corrected). Compare and update
-           rather than skipping, so the record stays true to the source. */
+           rather than skipping, so the record stays true to the source.
+           Fields the export omitted are carried forward first, so an absent
+           value never masquerades as a deletion. */
+        CSV.preserveBlanks(current, rec);
         var changes = CSV.diff(current, rec);
         if (changes.length) {
           rec.id = current.id;

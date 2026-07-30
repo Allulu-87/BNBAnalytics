@@ -175,8 +175,8 @@ window.App.Views = window.App.Views || {};
     if (changed.length) {
       review.appendChild(U.el('h3', { style: 'margin:.9rem 0 .4rem', text: 'Will be updated' }));
       review.appendChild(U.el('p', { class: 'small muted', style: 'margin:0 0 .5rem' }, [
-        'Only the fields below are overwritten. Your watchman, tips, water and ' +
-        'fruit entries for these bookings are not touched.'
+        'Only the fields below are overwritten. Your watchman, water and fruit ' +
+        'entries for these bookings are not touched.'
       ]));
 
       var ct = U.el('table', { class: 'data' });

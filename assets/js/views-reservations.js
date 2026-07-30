@@ -1,5 +1,5 @@
 /* BNB Analytics — reservations table + the per-booking cost editor.
-   Each booking carries four charge slots (watchman profit, tips, water
+   Each booking carries three charge slots (watchman profit, water
    bottles, fruits); every one has an amount, a date paid, and a
    processed/not-processed flag. */
 window.App = window.App || {};
@@ -312,7 +312,7 @@ window.App.Views = window.App.Views || {};
     card.appendChild(U.el('div', { class: 'card-head' }, [
       U.el('div', null, [
         U.el('h2', { text: 'Reservations' }),
-        U.el('p', { text: rows.length + ' shown · click any row to enter the watchman, tips, water and fruit costs.' })
+        U.el('p', { text: rows.length + ' shown · tap any row to enter the watchman, water and fruit costs.' })
       ]),
       U.el('div', { class: 'spacer' }),
       U.el('div', { class: 'field', style: 'flex:0 0 auto;min-width:150px' }, [statusSel]),
