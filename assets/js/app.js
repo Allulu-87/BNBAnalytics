@@ -12,9 +12,13 @@ window.App = window.App || {};
     { id: 'reservations', label: 'Reservations' },
     { id: 'expenses', label: 'Expenses' },
     { id: 'dashboard', label: 'Dashboard' },
+    { id: 'notes', label: 'Notes' },
     { id: 'import', label: 'Import' },
     { id: 'data', label: 'Data & export' }
   ];
+
+  /* Tabs the shared date/listing filters don't apply to. */
+  var UNFILTERED = { 'import': true, notes: true };
 
   var active = 'reservations';
 
@@ -245,11 +249,11 @@ window.App = window.App || {};
       t.setAttribute('aria-selected', t.dataset.tab === active ? 'true' : 'false');
     });
 
-    // Every tab is scoped by the shared filters — including Data & export,
-    // whose downloads honour them. Import is the one tab they don't apply to.
+    // Most tabs are scoped by the shared filters — including Data & export,
+    // whose downloads honour them. Import and Notes are not date-scoped.
     var host = U.$('#filterbar-host');
     U.clear(host);
-    if (active !== 'import') host.appendChild(filterPanel());
+    if (!UNFILTERED[active]) host.appendChild(filterPanel());
 
     TABS.forEach(function (t) {
       var v = U.$('#view-' + t.id);
@@ -380,8 +384,9 @@ window.App = window.App || {};
       ['js/exporter.js', !!A.Ex],
       ['js/charts.js', !!A.Charts],
       ['js/analytics.js', !!A.An],
-      ['js/views (5 + section)', !!(A.Views && A.Views.dashboard && A.Views.reservations &&
-        A.Views.chargesSection && A.Views.expenses && A.Views['import'] && A.Views.data)],
+      ['js/views (6 + section)', !!(A.Views && A.Views.dashboard && A.Views.reservations &&
+        A.Views.chargesSection && A.Views.expenses && A.Views.notes &&
+        A.Views['import'] && A.Views.data)],
       ['WebAssembly support', typeof WebAssembly === 'object']
     ];
     return out;

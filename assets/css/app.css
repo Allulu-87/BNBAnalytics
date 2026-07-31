@@ -479,6 +479,34 @@ html.modal-open body { overflow: hidden; }
   font-size: .74rem; color: var(--text-muted);
 }
 
+/* per-reservation notes, at the foot of the modal */
+.res-notes { margin-top: .8rem; }
+.res-notes textarea { resize: vertical; min-height: 4.5rem; }
+
+/* marks a row whose booking carries a note */
+.note-badge {
+  margin-inline-start: .35rem;
+  color: var(--series-1);
+  border-color: color-mix(in srgb, var(--series-1) 35%, transparent);
+}
+
+/* ── side notes tab ─────────────────────────────────────────────────────── */
+
+.note-card { padding: .7rem; }
+.note-card textarea {
+  resize: vertical;
+  min-height: 5rem;
+  border-color: transparent;
+  background: var(--surface-1);
+  font-size: .88rem;
+}
+.note-card textarea:hover { border-color: var(--border); }
+.note-foot {
+  display: flex; align-items: center; gap: .5rem;
+  margin-top: .45rem;
+}
+.note-saved { font-size: .72rem; color: var(--text-muted); }
+
 /* the details the table has no column for (contact, occupancy, booked date) */
 .fact-grid {
   display: grid;

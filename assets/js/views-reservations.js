@@ -21,6 +21,18 @@ window.App.Views = window.App.Views || {};
     });
   }
 
+  /** Guest name, flagged when the booking carries a note. */
+  function guestContent(r) {
+    var kids = [U.el('span', { dir: 'auto', text: r.guest_name || '—' })];
+    if (r.notes && String(r.notes).trim()) {
+      kids.push(U.el('span', {
+        class: 'badge note-badge', text: 'note',
+        title: String(r.notes).slice(0, 400)
+      }));
+    }
+    return kids;
+  }
+
   /** Struck through when cancelled, dimmed when the payout hasn't landed. */
   function earningsClass(r) {
     if (r.is_cancelled) return 'num money-void';
@@ -266,6 +278,26 @@ window.App.Views = window.App.Views || {};
     return { el: box, paintNote: paintNote };
   }
 
+  /** Your own note on this booking. Saved on blur, patched in place. */
+  function notesField(res, onChanged) {
+    var ta = U.el('textarea', {
+      rows: '3', spellcheck: 'true', dir: 'auto',
+      placeholder: 'Anything worth remembering about this booking…',
+      'aria-label': 'Notes for this reservation'
+    });
+    ta.value = res.notes || '';
+
+    ta.addEventListener('change', function () {
+      DB.setReservationNotes(res.id, ta.value);
+      App.persist();
+      onChanged();
+    });
+
+    return U.el('div', { class: 'field res-notes' }, [
+      U.el('label', { text: 'Notes' }), ta
+    ]);
+  }
+
   function deleteButton(res) {
     return U.el('div', { class: 'row', style: 'margin-top:.6rem' }, [
       U.el('button', {
@@ -295,10 +327,14 @@ window.App.Views = window.App.Views || {};
     if (res.is_cancelled) {
       return U.el('div', { class: 'detail-box' }, [
         factGrid(res),
-        U.el('p', { class: 'notice', style: 'margin:0' }, [
+        U.el('p', { class: 'notice', style: 'margin:0 0 .7rem' }, [
           'Cancelled, so it counts for nothing: no earnings, no nights, and no ' +
           'payments are tracked against it.'
         ]),
+        // notes still make sense — often *why* it was cancelled
+        notesField(res, function () {
+          paintRow(tr, DB.one('SELECT * FROM v_reservations WHERE id = ?', [res.id]) || res);
+        }),
         deleteButton(res)
       ]);
     }
@@ -360,7 +396,8 @@ window.App.Views = window.App.Views || {};
     syncFigures();
 
     return U.el('div', { class: 'detail-box' }, [
-      factGrid(res), payout.el, rows, totals, deleteButton(res)
+      factGrid(res), payout.el, rows, totals,
+      notesField(res, syncFigures), deleteButton(res)
     ]);
   }
 
@@ -395,6 +432,9 @@ window.App.Views = window.App.Views || {};
    */
   function paintRow(tr, cur) {
     if (!tr || !tr.cells || tr.cells.length !== COLS.length) return;
+
+    var gCell = U.clear(tr.cells[colIndex('guest_name')]);
+    guestContent(cur).forEach(function (n) { gCell.appendChild(n); });
 
     var eCell = tr.cells[colIndex('earnings_raw')];
     eCell.textContent = U.fmtNum(cur.earnings_raw, 2);
@@ -532,7 +572,7 @@ window.App.Views = window.App.Views || {};
       }, [
         U.el('td', null, [U.el('span', { class: 'mono small', text: r.confirmation_code })]),
         U.el('td', { class: 'wrap', text: r.listing_name }),
-        U.el('td', { class: 'wrap', dir: 'auto', text: r.guest_name || '—' }),
+        U.el('td', { class: 'wrap' }, guestContent(r)),
         U.el('td', { text: U.prettyDate(r.start_date) }),
         U.el('td', { text: U.prettyDate(r.end_date) }),
         U.el('td', { class: 'num', text: r.nights_raw }),

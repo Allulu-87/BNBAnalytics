@@ -18,7 +18,7 @@ window.App.Views = window.App.Views || {};
       'Earnings in bank', 'Earnings awaiting bank',
       'Watchman', 'Water bottles', 'Fruits',
       'Costs recorded', 'Costs paid (deducted)', 'Costs pending (not deducted)',
-      'Net profit', 'Currency'];
+      'Net profit', 'Currency', 'Notes'];
     var rows = [head];
     DB.reservations(f).forEach(function (r) {
       var c = DB.chargesFor(r.id);
@@ -33,7 +33,7 @@ window.App.Views = window.App.Views || {};
         U.round(r.earnings, 3), U.round(r.earnings_awaiting, 3),
         amt('watchman'), amt('water'), amt('fruits'),
         U.round(r.cost_total, 3), U.round(r.cost_paid, 3), U.round(r.cost_unpaid, 3),
-        U.round(r.net, 3), r.currency || U.currency
+        U.round(r.net, 3), r.currency || U.currency, r.notes || ''
       ]);
     });
     return rows;
@@ -123,6 +123,15 @@ window.App.Views = window.App.Views || {};
     ];
   }
 
+  /** Side notes are not date-scoped, so the filters don't apply to them. */
+  function noteRows() {
+    var rows = [['Added', 'Last edited', 'Note']];
+    DB.notes().forEach(function (n) {
+      rows.push([n.created_at || '', n.updated_at || '', n.body || '']);
+    });
+    return rows;
+  }
+
   function costRows(f) {
     var rows = [['Cost', 'Type', 'Entries', 'Amount', 'Unpaid']];
     An.costBreakdown(f).forEach(function (c) {
@@ -164,7 +173,7 @@ window.App.Views = window.App.Views || {};
     exportCard.appendChild(U.el('div', { class: 'card-head' }, [
       U.el('div', null, [
         U.el('h2', { text: 'Export' }),
-        U.el('p', { text: 'Uses the filters at the top of the page. Excel gets one workbook with ten sheets.' })
+        U.el('p', { text: 'Uses the filters at the top of the page. Excel gets one workbook with eleven sheets.' })
       ])
     ]));
 
@@ -183,7 +192,8 @@ window.App.Views = window.App.Views || {};
               { name: 'Charges by month', rows: chargePeriodRows(f, 'month') },
               { name: 'Charges by year', rows: chargePeriodRows(f, 'year') },
               { name: 'Expenses', rows: expenseRows(f) },
-              { name: 'Cost breakdown', rows: costRows(f) }
+              { name: 'Cost breakdown', rows: costRows(f) },
+              { name: 'Side notes', rows: noteRows() }
             ]);
             U.download('bnb-analytics-' + stamp + '.xlsx', blob);
             U.toast('Excel workbook downloaded');
@@ -306,7 +316,8 @@ window.App.Views = window.App.Views || {};
     var c = DB.counts();
     backupCard.appendChild(U.el('p', { class: 'small muted', style: 'margin:.75rem 0 0' }, [
       App.Store.describe() + ' · ' + c.listings + ' listings, ' + c.reservations +
-      ' reservations, ' + c.charges + ' charges, ' + c.expenses + ' expenses.'
+      ' reservations, ' + c.charges + ' charges, ' + c.expenses + ' expenses, ' +
+      c.notes + ' notes.'
     ]));
     root.appendChild(backupCard);
 

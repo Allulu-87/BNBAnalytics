@@ -64,10 +64,11 @@ window.App = window.App || {};
     "  earnings REAL NOT NULL DEFAULT 0," +
     "  currency TEXT DEFAULT 'JD'," +
     "  imported_at TEXT," +
-    /* Yours, not Airbnb's: has the payout actually landed in the bank?
-       Never written by the importer (see DB.updateReservation). */
+    /* Yours, not Airbnb's — never written by the importer (see
+       DB.updateReservation): whether the payout landed, and your own notes. */
     "  payout_received INTEGER NOT NULL DEFAULT 0," +
     "  payout_date TEXT," +
+    "  notes TEXT," +
     "  UNIQUE (listing_id, confirmation_code)" +
     ");",
 
@@ -98,8 +99,18 @@ window.App = window.App || {};
     "CREATE INDEX IF NOT EXISTS ix_res_start ON reservations(start_date);",
     "CREATE INDEX IF NOT EXISTS ix_res_code ON reservations(confirmation_code);",
     "CREATE INDEX IF NOT EXISTS ix_chg_res ON booking_charges(reservation_id);",
+    /* Free-standing notes, not attached to anything — the app's side notebook.
+       Lives in the same database, so it rides along in every .sqlite backup. */
+    "CREATE TABLE IF NOT EXISTS notes (" +
+    "  id INTEGER PRIMARY KEY AUTOINCREMENT," +
+    "  body TEXT NOT NULL DEFAULT ''," +
+    "  created_at TEXT," +
+    "  updated_at TEXT" +
+    ");",
+
     "CREATE INDEX IF NOT EXISTS ix_exp_date ON expenses(expense_date);",
-    "CREATE INDEX IF NOT EXISTS ix_exp_cat ON expenses(category);"
+    "CREATE INDEX IF NOT EXISTS ix_exp_cat ON expenses(category);",
+    "CREATE INDEX IF NOT EXISTS ix_notes_updated ON notes(updated_at);"
   ];
 
   /* Columns added after the first release. `CREATE TABLE IF NOT EXISTS` does
@@ -107,7 +118,8 @@ window.App = window.App || {};
      and SQLite has no `ADD COLUMN IF NOT EXISTS`, hence the PRAGMA check. */
   var ADDED_COLUMNS = [
     ['reservations', 'payout_received', 'INTEGER NOT NULL DEFAULT 0'],
-    ['reservations', 'payout_date', 'TEXT']
+    ['reservations', 'payout_date', 'TEXT'],
+    ['reservations', 'notes', 'TEXT']
   ];
 
   /* Everything below is derived from the tables, so it is dropped and rebuilt on
@@ -162,7 +174,7 @@ window.App = window.App || {};
     "  r.start_date, r.end_date, r.booked_date," +
     "  r.currency, r.imported_at," +
     "  IFNULL(r.payout_received, 0) AS payout_received," +
-    "  r.payout_date," +
+    "  r.payout_date, r.notes," +
     "  CASE WHEN " + CANC + " THEN 1 ELSE 0 END AS is_cancelled," +
     "  r.earnings AS earnings_raw," +
     "  r.nights   AS nights_raw," +
@@ -460,6 +472,32 @@ window.App = window.App || {};
       [received ? 1 : 0, dateISO || null, id]);
   };
 
+  /** Your own note on a booking. Also never touched by the importer. */
+  DB.setReservationNotes = function (id, notes) {
+    var v = notes == null ? '' : String(notes).trim();
+    DB.run('UPDATE reservations SET notes = ? WHERE id = ?', [v || null, id]);
+  };
+
+  /* ── side notes ───────────────────────────────────────────────────────── */
+
+  DB.notes = function () {
+    return DB.all('SELECT * FROM notes ORDER BY updated_at DESC, id DESC');
+  };
+
+  DB.addNote = function (body) {
+    var now = new Date().toISOString();
+    DB.run('INSERT INTO notes (body, created_at, updated_at) VALUES (?,?,?)',
+      [String(body == null ? '' : body), now, now]);
+    return DB.lastId();
+  };
+
+  DB.updateNote = function (id, body) {
+    DB.run('UPDATE notes SET body = ?, updated_at = ? WHERE id = ?',
+      [String(body == null ? '' : body), new Date().toISOString(), id]);
+  };
+
+  DB.deleteNote = function (id) { DB.run('DELETE FROM notes WHERE id = ?', [id]); };
+
   /* ── booking charges ─────────────────────────────────────────────────── */
 
   /** How many charges, and how much, a cancelled booking still holds. Used to
@@ -576,8 +614,8 @@ window.App = window.App || {};
     if (f.payout === 'awaiting') w.push('payout_received = 0 AND is_cancelled = 0');
     if (f.q) {
       w.push('(guest_name LIKE ? OR confirmation_code LIKE ? OR IFNULL(contact, \'\') LIKE ?' +
-        ' OR listing_name LIKE ?)');
-      var like = '%' + f.q + '%'; p.push(like, like, like, like);
+        ' OR listing_name LIKE ? OR IFNULL(notes, \'\') LIKE ?)');
+      var like = '%' + f.q + '%'; p.push(like, like, like, like, like);
     }
     // whitelist, because f.sort is interpolated into the SQL rather than bound
     var order = ({
@@ -617,7 +655,8 @@ window.App = window.App || {};
       listings: DB.scalar('SELECT COUNT(*) AS n FROM listings') || 0,
       reservations: DB.scalar('SELECT COUNT(*) AS n FROM reservations') || 0,
       charges: DB.scalar('SELECT COUNT(*) AS n FROM booking_charges') || 0,
-      expenses: DB.scalar('SELECT COUNT(*) AS n FROM expenses') || 0
+      expenses: DB.scalar('SELECT COUNT(*) AS n FROM expenses') || 0,
+      notes: DB.scalar('SELECT COUNT(*) AS n FROM notes') || 0
     };
   };
 
