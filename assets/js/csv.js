@@ -372,7 +372,6 @@ window.App = window.App || {};
    * never touched, so entered amounts, dates paid and processed flags survive.
    */
   CSV.commit = function (newRows, changedRows) {
-    var rate = U.parseNum(DB.getSetting('watchman_rate'));
     var inserted = 0, seeded = 0, updated = 0;
 
     DB.run('BEGIN');
@@ -383,10 +382,19 @@ window.App = window.App || {};
         rec.listing_id = listingId;
         var id = DB.insertReservation(rec);
         inserted++;
-        // a cancelled stay never gets a watchman charge to begin with
-        if (rate > 0 && rec.nights > 0 && !DB.isCancelledStatus(rec.status)) {
-          DB.saveCharge(id, 'watchman', { amount: U.round(rate * rec.nights, 3), is_paid: 0 });
-          seeded++;
+
+        /* Seed the standard charges at their default amounts. Optional ones
+           (dry cleaning) are left off until asked for on the booking, and a
+           cancelled stay gets nothing at all. */
+        if (!DB.isCancelledStatus(rec.status)) {
+          DB.CHARGE_KINDS.forEach(function (kind) {
+            if (kind.optional) return;
+            var amt = DB.defaultChargeAmount(kind, rec.nights);
+            if (amt > 0) {
+              DB.saveCharge(id, kind.key, { amount: amt, is_paid: 0 });
+              seeded++;
+            }
+          });
         }
       });
 

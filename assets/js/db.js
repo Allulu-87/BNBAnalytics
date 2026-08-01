@@ -13,12 +13,35 @@ window.App = window.App || {};
   };
 
   /** Per-booking charge kinds. `auto` rows get seeded on import. */
-  /* Watchman tips moved out to the expenses list — they are not per-booking. */
+  /* Per-booking charges. Each has a default amount held in `meta` under
+     `settingKey`, so the figures stay editable rather than hard-coded.
+     `perNight` multiplies by the stay length; `optional` means it is not applied
+     unless you ask for it on the booking. */
   DB.CHARGE_KINDS = [
-    { key: 'watchman', label: 'Watchman profit', short: 'Watchman', auto: true, hint: 'per night' },
-    { key: 'water', label: 'Water bottles', short: 'Water', auto: false, hint: 'free amount' },
-    { key: 'fruits', label: 'Fruits', short: 'Fruits', auto: false, hint: 'free amount' }
+    {
+      key: 'watchman', label: 'Watchman profit', short: 'Watchman',
+      settingKey: 'watchman_rate', perNight: true, hint: 'per night'
+    },
+    {
+      key: 'water', label: 'Water bottles', short: 'Water',
+      settingKey: 'default_water', hint: 'per booking'
+    },
+    {
+      key: 'fruits', label: 'Fruits', short: 'Fruits',
+      settingKey: 'default_fruits', hint: 'per booking'
+    },
+    {
+      key: 'drycleaning', label: 'Dry cleaning', short: 'Dry clean',
+      settingKey: 'default_drycleaning', hint: 'post checkout', optional: true
+    }
   ];
+
+  /** The amount a charge starts at on a given booking. */
+  DB.defaultChargeAmount = function (kind, nights) {
+    var v = U.parseNum(DB.getSetting(kind.settingKey));
+    if (!kind.perNight) return U.round(v, 3);
+    return nights > 0 ? U.round(v * nights, 3) : 0;
+  };
 
   /** The one definition of "cancelled", shared by SQL and JS. */
   DB.CANCELLED_SQL = "LOWER(IFNULL(status,'')) LIKE '%cancel%'";
@@ -33,7 +56,8 @@ window.App = window.App || {};
     'Gas Bill', 'Electricity Bill', 'Water Bill', 'Internet Bill',
     'Nescafe 3 in 1', 'Toilet Paper', 'Facial Tissue', 'Surface Cleaner',
     'Surface Cleaning Sheets', 'Sugar Bags', 'Tea Bags', 'Dishwashing Liquid',
-    'Cleaning Sponge', 'Slippers', 'Dry Cleaning',
+    /* Dry cleaning is NOT here — it is a per-booking charge (see CHARGE_KINDS). */
+    'Cleaning Sponge', 'Slippers',
     'AE to JD Currency Diff', 'Bank Transfer Fees', 'Other'
   ];
 
@@ -307,6 +331,9 @@ window.App = window.App || {};
 
     runMigrations();
     if (DB.getSetting('watchman_rate') == null) DB.setSetting('watchman_rate', '2');
+    if (DB.getSetting('default_water') == null) DB.setSetting('default_water', '1');
+    if (DB.getSetting('default_fruits') == null) DB.setSetting('default_fruits', '3');
+    if (DB.getSetting('default_drycleaning') == null) DB.setSetting('default_drycleaning', '20');
     if (DB.getSetting('currency') == null) DB.setSetting('currency', 'JD');
     if (DB.getSetting('decimals') == null) DB.setSetting('decimals', '3');
     if (DB.getSetting('revenue_basis') == null) DB.setSetting('revenue_basis', 'start_date');

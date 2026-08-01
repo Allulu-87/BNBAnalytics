@@ -13,6 +13,14 @@ window.App.Views = window.App.Views || {};
   var pending = null;      // result of CSV.analyse
   var fileName = '';
 
+  /** What the standard charges will add up to on a newly imported booking. */
+  function seededTotal(rec) {
+    if (DB.isCancelledStatus(rec.status)) return 0;
+    return DB.CHARGE_KINDS.reduce(function (a, kind) {
+      return kind.optional ? a : a + DB.defaultChargeAmount(kind, rec.nights);
+    }, 0);
+  }
+
   function box(n, t) {
     return U.el('div', { class: 'box' }, [
       U.el('div', { class: 'n', text: String(n) }),
@@ -133,16 +141,17 @@ window.App.Views = window.App.Views || {};
 
     review.appendChild(U.el('div', { class: 'notice' }, [
       U.el('strong', { text: 'Dates read as ' + (pending.dayFirst ? 'day/month/year' : 'month/day/year') }),
-      'Detected from the file itself. ' +
-      (rate > 0
-        ? 'Each new booking gets a watchman charge of ' + U.fmtNum(rate, 3) + ' × nights, marked not-paid — edit any of them on the Reservations tab.'
-        : 'The watchman rate is 0, so no charge will be seeded. Set it on the Data tab.')
+      'Detected from the file itself. Each new booking starts with the standard ' +
+      'charges at their default amounts (watchman ' + U.fmtNum(rate, 3) +
+      ' × nights, plus the flat ones), all marked not-paid. Dry cleaning is not ' +
+      'applied unless you ask for it on the booking. Change the defaults on the ' +
+      'Data & export tab.'
     ]));
 
     if (pending.newRows.length) {
       var t = U.el('table', { class: 'data' });
       t.appendChild(U.el('thead', null, [
-        U.el('tr', null, ['Code', 'Listing', 'Guest', 'Check-in', 'Check-out', 'Nights', 'Status', 'Earnings', 'Watchman'].map(function (h, i) {
+        U.el('tr', null, ['Code', 'Listing', 'Guest', 'Check-in', 'Check-out', 'Nights', 'Status', 'Earnings', 'Charges'].map(function (h, i) {
           return U.el('th', { class: (i >= 5 && i !== 6 ? 'num' : ''), text: h });
         }))
       ]));
@@ -157,7 +166,7 @@ window.App.Views = window.App.Views || {};
           U.el('td', { class: 'num', text: r.nights }),
           U.el('td', { text: r.status || '—' }),
           U.el('td', { class: 'num', text: U.fmtNum(r.earnings, 2) }),
-          U.el('td', { class: 'num', text: U.fmtNum(rate * r.nights, 2) })
+          U.el('td', { class: 'num', text: U.fmtNum(seededTotal(r), 2) })
         ]));
       });
       t.appendChild(tb);
@@ -175,8 +184,8 @@ window.App.Views = window.App.Views || {};
     if (changed.length) {
       review.appendChild(U.el('h3', { style: 'margin:.9rem 0 .4rem', text: 'Will be updated' }));
       review.appendChild(U.el('p', { class: 'small muted', style: 'margin:0 0 .5rem' }, [
-        'Only the fields below are overwritten. Your watchman, water and fruit ' +
-        'entries for these bookings are not touched.'
+        'Only the fields below are overwritten. Your per-booking charges, payout ' +
+        'flag and notes for these bookings are not touched.'
       ]));
 
       var ct = U.el('table', { class: 'data' });

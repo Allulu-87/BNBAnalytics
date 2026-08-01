@@ -94,10 +94,8 @@ window.App.Views = window.App.Views || {};
    */
   function chargeRow(res, kind, existing, onSaved) {
     var row = existing || { amount: 0, date_paid: null, is_paid: 0, note: null };
-    var rate = U.parseNum(DB.getSetting('watchman_rate'));
-    var expect = (kind.key === 'watchman' && res.nights > 0)
-      ? U.round(rate * res.nights, 3)
-      : null;
+    // every kind has a default now, so the "use N" shortcut applies to all
+    var expect = DB.defaultChargeAmount(kind, res.nights) || null;
     var tr = U.el('tr', { class: row.amount > 0 ? 'is-set' : '' });
     var useBtn = null;
 
@@ -168,8 +166,8 @@ window.App.Views = window.App.Views || {};
     note.addEventListener('change', commit);
     isPaid.addEventListener('change', commit);
 
-    var hint = expect != null
-      ? U.fmtNum(rate, 3) + ' × ' + res.nights + ' nights'
+    var hint = kind.perNight
+      ? U.fmtNum(U.parseNum(DB.getSetting(kind.settingKey)), 3) + ' × ' + res.nights + ' nights'
       : kind.hint;
 
     var nameCell = U.el('td', {
@@ -278,6 +276,37 @@ window.App.Views = window.App.Views || {};
     return { el: box, paintNote: paintNote };
   }
 
+  /**
+   * Opt-in switch for a charge that is off by default.
+   * Ticking it creates the charge at its default amount; unticking removes it
+   * (saveCharge deletes anything with a non-positive amount).
+   */
+  function optionalChargeToggle(res, kind, present, onChanged) {
+    var amount = DB.defaultChargeAmount(kind, res.nights);
+
+    var cb = U.el('input', {
+      type: 'checkbox',
+      'aria-label': kind.label + ' post checkout?'
+    });
+    cb.checked = !!present;
+
+    cb.addEventListener('change', function () {
+      DB.saveCharge(res.id, kind.key,
+        cb.checked ? { amount: amount, is_paid: 0 } : { amount: 0 });
+      App.persist();
+      onChanged();
+    });
+
+    return U.el('div', { class: 'payout-box optional-charge' }, [
+      U.el('label', { class: 'payout-check' }, [cb, kind.label + ' post checkout?']),
+      U.el('p', { class: 'payout-note' }, [
+        cb.checked
+          ? 'Charged at ' + U.fmtMoney(amount, 3) + ' — edit the amount in the table below.'
+          : 'Not charged. Tick to add ' + U.fmtMoney(amount, 3) + ' to this booking.'
+      ])
+    ]);
+  }
+
   /** Your own note on this booking. Saved on blur, patched in place. */
   function notesField(res, onChanged) {
     var ta = U.el('textarea', {
@@ -339,8 +368,8 @@ window.App.Views = window.App.Views || {};
       ]);
     }
 
-    var charges = DB.chargesFor(res.id);
     var totals = U.el('div', { class: 'charge-total' });
+    var optionalHost = U.el('div');
 
     function stat(label, value, cls) {
       return U.el('span', null, [
@@ -386,17 +415,43 @@ window.App.Views = window.App.Views || {};
       ])
     ]));
     var tb = U.el('tbody');
-    DB.CHARGE_KINDS.forEach(function (kind) {
-      tb.appendChild(chargeRow(res, kind, charges[kind.key], syncFigures));
-    });
     table.appendChild(tb);
     var rows = U.el('div', { class: 'table-scroll' }, [table]);
 
+    /* Which rows exist depends on the optional toggles, so the body and the
+       toggles are rebuilt together — but only them. Rebuilding the whole view
+       would replay the modal's entry animation. */
+    function rebuildCharges() {
+      var charges = DB.chargesFor(res.id);
+
+      U.clear(tb);
+      DB.CHARGE_KINDS.forEach(function (kind) {
+        if (kind.optional && !charges[kind.key]) return;   // off until asked for
+        tb.appendChild(chargeRow(res, kind, charges[kind.key], syncFigures));
+      });
+
+      U.clear(optionalHost);
+      DB.CHARGE_KINDS.forEach(function (kind) {
+        if (!kind.optional) return;
+        optionalHost.appendChild(optionalChargeToggle(
+          res, kind, charges[kind.key],
+          function () { rebuildCharges(); syncFigures(); }
+        ));
+      });
+
+      /* Rebuilt rows carry fresh date inputs that need pickers. Only mount here
+         when we are already in the document — on the first build nothing is
+         attached yet, and mount() drains the queue, which would throw away the
+         pickers that render() is about to create. */
+      if (tb.isConnected) App.DP.mount();
+    }
+
     payout = payoutControl(res, syncFigures);
+    rebuildCharges();
     syncFigures();
 
     return U.el('div', { class: 'detail-box' }, [
-      factGrid(res), payout.el, rows, totals,
+      factGrid(res), payout.el, rows, optionalHost, totals,
       notesField(res, syncFigures), deleteButton(res)
     ]);
   }
@@ -513,7 +568,7 @@ window.App.Views = window.App.Views || {};
     card.appendChild(U.el('div', { class: 'card-head' }, [
       U.el('div', null, [
         U.el('h2', { text: 'Reservations' }),
-        U.el('p', { text: rows.length + ' shown · tap any row to enter the watchman, water and fruit costs.' })
+        U.el('p', { text: rows.length + ' shown · tap any row to record its costs and payout.' })
       ]),
       U.el('div', { class: 'spacer' }),
       U.el('div', { class: 'field', style: 'flex:0 0 auto;min-width:150px' }, [statusSel]),

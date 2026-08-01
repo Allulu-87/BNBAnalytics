@@ -16,7 +16,7 @@ window.App.Views = window.App.Views || {};
       'Adults', 'Children', 'Infants', 'Check-in', 'Check-out', 'Nights', 'Booked',
       'Earnings (Airbnb)', 'Payout received', 'Payout date',
       'Earnings in bank', 'Earnings awaiting bank',
-      'Watchman', 'Water bottles', 'Fruits',
+      'Watchman', 'Water bottles', 'Fruits', 'Dry cleaning',
       'Costs recorded', 'Costs paid (deducted)', 'Costs pending (not deducted)',
       'Net profit', 'Currency', 'Notes'];
     var rows = [head];
@@ -31,7 +31,7 @@ window.App.Views = window.App.Views || {};
         U.round(r.earnings_raw, 3),
         r.payout_received ? 'Yes' : 'No', r.payout_date || '',
         U.round(r.earnings, 3), U.round(r.earnings_awaiting, 3),
-        amt('watchman'), amt('water'), amt('fruits'),
+        amt('watchman'), amt('water'), amt('fruits'), amt('drycleaning'),
         U.round(r.cost_total, 3), U.round(r.cost_paid, 3), U.round(r.cost_unpaid, 3),
         U.round(r.net, 3), r.currency || U.currency, r.notes || ''
       ]);
@@ -326,7 +326,10 @@ window.App.Views = window.App.Views || {};
     setCard.appendChild(U.el('div', { class: 'card-head' }, [
       U.el('div', null, [
         U.el('h2', { text: 'Settings' }),
-        U.el('p', { text: 'The watchman rate seeds the per-night charge on newly imported bookings.' })
+        U.el('p', {
+          text: 'Default charge amounts. The watchman rate is per night; the ' +
+            'others are per booking. New imports start from these.'
+        })
       ])
     ]));
 
@@ -334,6 +337,17 @@ window.App.Views = window.App.Views || {};
       type: 'number', step: '0.001', min: '0', inputmode: 'decimal',
       value: U.round(U.parseNum(DB.getSetting('watchman_rate')), 3),
       'aria-label': 'Watchman rate per night'
+    });
+
+    /* One field per charge kind that has a flat default, built from
+       CHARGE_KINDS so adding a kind cannot leave its default unreachable. */
+    var flatKinds = DB.CHARGE_KINDS.filter(function (k) { return !k.perNight; });
+    var flatInputs = flatKinds.map(function (k) {
+      return U.el('input', {
+        type: 'number', step: '0.001', min: '0', inputmode: 'decimal',
+        value: U.round(U.parseNum(DB.getSetting(k.settingKey)), 3),
+        'aria-label': 'Default amount for ' + k.label
+      });
     });
     var curIn = U.el('input', {
       type: 'text', value: DB.getSetting('currency') || 'JD', maxlength: '6',
@@ -344,10 +358,17 @@ window.App.Views = window.App.Views || {};
         return U.el('option', { value: d, text: d, selected: String(U.decimals) === d });
       }));
 
-    setCard.appendChild(U.el('div', { class: 'row', style: 'align-items:flex-end' }, [
-      U.el('div', { class: 'field', style: 'flex:1 1 170px' }, [
-        U.el('label', { text: 'Watchman rate per night' }), rateIn
-      ]),
+    var setFields = [
+      U.el('div', { class: 'field', style: 'flex:1 1 165px' }, [
+        U.el('label', { text: 'Watchman per night' }), rateIn
+      ])
+    ];
+    flatKinds.forEach(function (k, i) {
+      setFields.push(U.el('div', { class: 'field', style: 'flex:1 1 130px' }, [
+        U.el('label', { text: k.label + (k.optional ? ' (optional)' : '') }), flatInputs[i]
+      ]));
+    });
+    setFields.push(
       U.el('div', { class: 'field', style: 'flex:1 1 110px' }, [
         U.el('label', { text: 'Currency label' }), curIn
       ]),
@@ -358,6 +379,9 @@ window.App.Views = window.App.Views || {};
         class: 'btn btn-primary', type: 'button',
         onclick: function () {
           DB.setSetting('watchman_rate', U.parseNum(rateIn.value));
+          flatKinds.forEach(function (k, i) {
+            DB.setSetting(k.settingKey, U.parseNum(flatInputs[i].value));
+          });
           DB.setSetting('currency', String(curIn.value).trim() || 'JD');
           DB.setSetting('decimals', decIn.value);
           U.currency = DB.getSetting('currency');
@@ -367,11 +391,13 @@ window.App.Views = window.App.Views || {};
           App.refresh();
         }
       }, ['Save settings'])
-    ]));
+    );
+
+    setCard.appendChild(U.el('div', { class: 'row', style: 'align-items:flex-end' }, setFields));
 
     setCard.appendChild(U.el('p', { class: 'small muted', style: 'margin:.75rem 0 0' }, [
-      'Changing the rate does not rewrite charges already recorded — open a booking on the ' +
-      'Reservations tab and use its "Set" button to apply the new rate.'
+      'Changing a default does not rewrite charges already recorded — open a booking ' +
+      'on the Reservations tab and use its "use N" link to apply the new figure.'
     ]));
     root.appendChild(setCard);
 

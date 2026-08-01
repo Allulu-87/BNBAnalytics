@@ -23,7 +23,7 @@ window.App.Views = window.App.Views || {};
       its rank, so filtering never repaints the survivors. */
   function kindColors() {
     var c = Charts.colors();
-    return { watchman: c.s1, water: c.s2, fruits: c.s3 };
+    return { watchman: c.s1, water: c.s2, fruits: c.s3, drycleaning: c.s4 };
   }
 
   function tile(label, value, foot, opts) {
@@ -86,8 +86,8 @@ window.App.Views = window.App.Views || {};
     root.appendChild(U.el('div', { class: 'section-head' }, [
       U.el('h2', { text: 'Per-booking payments' }),
       U.el('p', {
-        text: 'Watchman, water and fruits on their own. Everything recorded is ' +
-          'counted here; only the paid part is deducted from the profit above.'
+        text: 'Watchman, water, fruits and dry cleaning on their own. Everything ' +
+          'recorded is counted here; only the paid part is deducted above.'
       })
     ]));
 
