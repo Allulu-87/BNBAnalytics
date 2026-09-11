@@ -179,15 +179,6 @@ window.App = window.App || {};
     return m ? m[1].toUpperCase().replace('$', '$') : null;
   };
 
-  /* ── nights ───────────────────────────────────────────────────────────── */
-
-  function nightsBetween(aISO, bISO) {
-    if (!U.isISO(aISO) || !U.isISO(bISO)) return 0;
-    var a = new Date(aISO + 'T00:00:00Z'), b = new Date(bISO + 'T00:00:00Z');
-    var d = Math.round((b - a) / 86400000);
-    return d > 0 ? d : 0;
-  }
-
   /* ── change detection ─────────────────────────────────────────────────── */
 
   function isBlank(v) {
@@ -307,7 +298,7 @@ window.App = window.App || {};
       if (!startISO) { bad.push({ line: ix + 2, why: 'unreadable start date "' + get(r, 'start_date') + '"', raw: code }); return; }
 
       var nights = Math.round(U.parseNum(get(r, 'nights')));
-      if (!nights) nights = nightsBetween(startISO, endISO);
+      if (!nights) nights = U.nightsBetween(startISO, endISO);
 
       var rec = {
         line: ix + 2,
@@ -383,19 +374,8 @@ window.App = window.App || {};
         var id = DB.insertReservation(rec);
         inserted++;
 
-        /* Seed the standard charges at their default amounts. Optional ones
-           (dry cleaning) are left off until asked for on the booking, and a
-           cancelled stay gets nothing at all. */
-        if (!DB.isCancelledStatus(rec.status)) {
-          DB.CHARGE_KINDS.forEach(function (kind) {
-            if (kind.optional) return;
-            var amt = DB.defaultChargeAmount(kind, rec.nights);
-            if (amt > 0) {
-              DB.saveCharge(id, kind.key, { amount: amt, is_paid: 0 });
-              seeded++;
-            }
-          });
-        }
+        // standard charges at their current defaults — same rule as manual entry
+        seeded += DB.seedCharges(id, rec.nights, rec.status);
       });
 
       (changedRows || []).forEach(function (rec) {

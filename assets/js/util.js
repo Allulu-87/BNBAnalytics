@@ -82,6 +82,15 @@ window.App = window.App || {};
 
   U.isISO = function (s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')); };
 
+  /** Whole nights between two ISO dates. 0 if either is missing or out of
+      order — a stay that ends before it starts is not a negative stay. */
+  U.nightsBetween = function (aISO, bISO) {
+    if (!U.isISO(aISO) || !U.isISO(bISO)) return 0;
+    var a = new Date(aISO + 'T00:00:00Z'), b = new Date(bISO + 'T00:00:00Z');
+    var d = Math.round((b - a) / 86400000);
+    return d > 0 ? d : 0;
+  };
+
   /** '2026-08' → 'Aug 2026' */
   U.monthLabel = function (ym) {
     if (!ym || ym.length < 7) return ym || '';

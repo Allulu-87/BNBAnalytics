@@ -161,6 +161,184 @@ window.App.Views = window.App.Views || {};
     return rows;
   }
 
+  /* ── managed lists ────────────────────────────────────────────────────────
+     Listings and booking statuses are the two things every reservation has to
+     be picked from, so they are edited here rather than typed into the booking
+     form. Free text there meant the same property or the same state could be
+     spelled three ways and then fail to group in the analysis. */
+
+  /** One editable list: existing entries with their usage, plus an add row. */
+  function listSection(opts) {
+    var box = U.el('div', { style: 'flex:1 1 300px;min-width:0' });
+    box.appendChild(U.el('h3', { text: opts.title, style: 'font-size:.88rem' }));
+    box.appendChild(U.el('p', { class: 'small muted', style: 'margin:.15rem 0 .55rem' },
+      [opts.hint]));
+
+    var list = U.el('div', { class: 'manage-list' });
+    if (!opts.items.length) {
+      list.appendChild(U.el('div', { class: 'empty small', text: opts.empty }));
+    }
+    opts.items.forEach(function (item) {
+      list.appendChild(U.el('div', { class: 'manage-row' }, [
+        U.el('span', { class: 'mr-name', dir: 'auto', text: item.name }),
+        U.el('span', { class: 'mr-use', text: item.use }),
+        U.el('button', {
+          class: 'btn btn-sm btn-danger', type: 'button',
+          title: 'Remove ' + item.name,
+          onclick: function () { opts.onRemove(item); }
+        }, ['Remove'])
+      ]));
+    });
+    box.appendChild(list);
+
+    var input = U.el('input', {
+      type: 'text', placeholder: opts.placeholder, 'aria-label': opts.placeholder,
+      onkeydown: function (e) { if (e.key === 'Enter') { e.preventDefault(); add(); } }
+    });
+    function add() { opts.onAdd(input.value.trim()); }
+
+    box.appendChild(U.el('div', { class: 'row', style: 'flex-wrap:nowrap' }, [
+      U.el('div', { style: 'flex:1 1 auto;min-width:0' }, [input]),
+      U.el('button', { class: 'btn', type: 'button', onclick: add }, ['Add'])
+    ]));
+    return box;
+  }
+
+  function listsCard() {
+    var card = U.el('div', { class: 'card' });
+    card.appendChild(U.el('div', { class: 'card-head' }, [
+      U.el('div', null, [
+        U.el('h2', { text: 'Listings & booking statuses' }),
+        U.el('p', {
+          text: 'The two dropdowns on the reservation form. Kept here so the ' +
+            'same property or state is always spelled the same way.'
+        })
+      ])
+    ]));
+
+    /* listings */
+    var listings = DB.listings().map(function (l) {
+      var use = DB.listingUsage(l.id);
+      return {
+        id: l.id, name: l.name, usage: use,
+        use: use.reservations
+          ? use.reservations + (use.reservations === 1 ? ' booking' : ' bookings')
+          : (use.expenses ? use.expenses + ' expenses' : 'unused')
+      };
+    });
+
+    var listingBox = listSection({
+      title: 'Listings',
+      hint: 'A booking belongs to exactly one. Removing one is only possible ' +
+        'once it has no reservations left.',
+      empty: 'No listings yet — add one before entering a reservation.',
+      placeholder: 'Name of the listing',
+      items: listings,
+      onAdd: function (name) {
+        if (!name) { U.toast('Type the listing name first', true); return; }
+        try {
+          var r = DB.addListing(name);
+          if (!r.created) { U.toast('That listing is already on the list', true); return; }
+          App.persist();
+          U.toast('Listing added');
+          App.refresh();
+        } catch (e) { U.toast(e.message, true); }
+      },
+      onRemove: function (item) {
+        /* The foreign key cascades, so a listing with bookings would take them
+           all with it. DB.deleteListing refuses; say why before it is tried. */
+        if (item.usage.reservations) {
+          U.toast('"' + item.name + '" still has ' + item.usage.reservations +
+            ' reservation' + (item.usage.reservations === 1 ? '' : 's') +
+            ' — remove those first', true);
+          return;
+        }
+        var extra = item.usage.expenses
+          ? '\n\nIts ' + item.usage.expenses + ' expense entr' +
+            (item.usage.expenses === 1 ? 'y becomes' : 'ies become') + ' shared ' +
+            '(All listings) rather than being deleted.'
+          : '';
+        if (!confirm('Remove the listing "' + item.name + '"?' + extra)) return;
+        try {
+          DB.deleteListing(item.id);
+          App.persist();
+          U.toast('Listing removed');
+          App.refresh();
+        } catch (e) { U.toast(e.message, true); }
+      }
+    });
+
+    /* statuses */
+    var managed = DB.statusOptions();
+    var statusItems = managed.map(function (s) {
+      var n = DB.statusUsage(s);
+      return {
+        name: s,
+        use: n ? n + (n === 1 ? ' booking' : ' bookings') : 'unused'
+      };
+    });
+
+    var statusBox = listSection({
+      title: 'Booking statuses',
+      hint: 'Anything containing "cancel" marks a booking cancelled, so it stops ' +
+        'counting towards earnings and nights.',
+      empty: 'No statuses — the built-in list will be used.',
+      placeholder: 'Name of the status',
+      items: statusItems,
+      onAdd: function (name) {
+        if (!name) { U.toast('Type the status first', true); return; }
+        if (managed.some(function (s) { return s.toLowerCase() === name.toLowerCase(); })) {
+          U.toast('That status is already on the list', true); return;
+        }
+        DB.setStatusOptions(managed.concat([name]));
+        App.persist();
+        U.toast('Status added');
+        App.refresh();
+      },
+      onRemove: function (item) {
+        /* Non-destructive: reservations keep whatever text they hold, this only
+           stops the status being offered. Worth saying, since the count beside
+           it looks like something is about to be lost. */
+        var n = DB.statusUsage(item.name);
+        if (!confirm('Stop offering "' + item.name + '"?' + (n
+          ? '\n\nThe ' + n + ' booking' + (n === 1 ? '' : 's') + ' already using it ' +
+            'keep it — they are not changed.'
+          : ''))) return;
+        DB.setStatusOptions(managed.filter(function (s) { return s !== item.name; }));
+        App.persist();
+        U.toast('Status removed');
+        App.refresh();
+      }
+    });
+
+    card.appendChild(U.el('div', { class: 'row', style: 'gap:1.4rem;align-items:flex-start' },
+      [listingBox, statusBox]));
+
+    /* Statuses that arrived with an import and are not on the list. Offering to
+       adopt them is cheaper than making you retype them exactly. */
+    var loose = DB.statuses().filter(function (s) { return managed.indexOf(s) === -1; });
+    if (loose.length) {
+      var row = U.el('div', { class: 'row', style: 'margin-top:.9rem' }, [
+        U.el('span', { class: 'small muted', text: 'Seen in imported bookings:' })
+      ]);
+      loose.forEach(function (s) {
+        row.appendChild(U.el('button', {
+          class: 'btn btn-sm', type: 'button',
+          title: 'Add "' + s + '" to the status list',
+          onclick: function () {
+            DB.setStatusOptions(managed.concat([s]));
+            App.persist();
+            U.toast('Status added');
+            App.refresh();
+          }
+        }, ['+ ' + s]));
+      });
+      card.appendChild(row);
+    }
+
+    return card;
+  }
+
   /* ── view ─────────────────────────────────────────────────────────────── */
 
   App.Views.data = function (root) {
@@ -400,6 +578,8 @@ window.App.Views = window.App.Views || {};
       'on the Reservations tab and use its "use N" link to apply the new figure.'
     ]));
     root.appendChild(setCard);
+
+    root.appendChild(listsCard());
 
     /* SQL console — it is a real database, so let it be queried */
     var sqlCard = U.el('div', { class: 'card' });

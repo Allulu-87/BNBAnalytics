@@ -152,6 +152,11 @@ main { padding: clamp(.75rem, 2vw, 1.5rem); max-width: 1400px; margin: 0 auto; }
 
 .view[hidden] { display: none; }
 
+/* The `hidden` attribute is only a UA `display: none`, so any class of ours that
+   sets a display (`.field`, `.row`) silently beats it. Anything hidden must
+   actually be hidden. */
+[hidden] { display: none !important; }
+
 /* ── Buttons & controls ─────────────────────────────────────────────────── */
 
 /* Kill the double-tap-zoom delay on things you tap, without ever overriding
@@ -195,6 +200,35 @@ input[type="checkbox"] { width: auto; min-height: 0; accent-color: var(--series-
 label { font-size: .78rem; color: var(--text-secondary); font-weight: 500; }
 
 .field { display: flex; flex-direction: column; gap: .22rem; min-width: 0; }
+
+/* A derived value sitting in a row of inputs (the night count). Matches an
+   input's metrics exactly so the row still lines up, and is visibly not one:
+   there is nothing here to type into. */
+.static-value {
+  display: flex; align-items: center;
+  min-height: 34px; padding: .4rem .55rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-2); color: var(--text-secondary);
+  font-size: .86rem; font-weight: 500;
+}
+@media (max-width: 760px) {
+  .static-value { min-height: 42px; font-size: 16px; }
+}
+
+/* ── managed lists (listings, booking statuses) ─────────────────────────── */
+
+.manage-list { display: flex; flex-direction: column; gap: .3rem; margin: 0 0 .6rem; }
+.manage-row {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .35rem .3rem .35rem .55rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.manage-row .mr-name {
+  flex: 1 1 auto; min-width: 0;
+  font-size: .84rem; font-weight: 500; overflow-wrap: break-word;
+}
+.manage-row .mr-use { flex: 0 0 auto; font-size: .75rem; color: var(--text-muted); }
 
 /* ── collapsible filter strip ───────────────────────────────────────────── */
 

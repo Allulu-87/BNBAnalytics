@@ -50,14 +50,58 @@ window.App = window.App || {};
     return /cancel/i.test(String(status == null ? '' : status));
   };
 
+  /* Booking statuses you can pick from. A managed list rather than free text,
+     so the same booking state is always spelled the same way — but the column
+     is still plain TEXT, because Airbnb's own wording varies by locale and the
+     importer must be able to store whatever it is given. Edited under
+     Data & export → Settings. Note that "cancel" anywhere in the text is what
+     makes a booking cancelled, wherever the text came from. */
+  DB.DEFAULT_STATUSES = [
+    'Confirmed', 'Past guest', 'Awaiting guest review',
+    'Cancelled by guest', 'Currently hosting'
+  ];
+
+  /** The first listing a brand-new database is given, so a reservation can be
+      entered before anything has been imported. Removable like any other. */
+  DB.DEFAULT_LISTING = 'Spacious 3BR Apartment with Terrace & Parking';
+
+  function cleanList(list) {
+    var seen = {}, out = [];
+    (list || []).forEach(function (v) {
+      var s = String(v == null ? '' : v).trim();
+      if (!s || seen[s.toLowerCase()]) return;
+      seen[s.toLowerCase()] = true;
+      out.push(s);
+    });
+    return out;
+  }
+
+  /** The statuses offered in the pickers, in the order they are managed. */
+  DB.statusOptions = function () {
+    var raw = DB.getSetting('statuses'), list = null;
+    if (raw) { try { list = JSON.parse(raw); } catch (e) { list = null; } }
+    list = cleanList(list);
+    return list.length ? list : DB.DEFAULT_STATUSES.slice();
+  };
+
+  DB.setStatusOptions = function (list) {
+    DB.setSetting('statuses', JSON.stringify(cleanList(list)));
+  };
+
+  /** How many bookings currently carry this exact status. */
+  DB.statusUsage = function (name) {
+    return DB.scalar('SELECT COUNT(*) AS n FROM reservations WHERE IFNULL(status,\'\') = ?',
+      [String(name)]) || 0;
+  };
+
   /** Anytime expense categories, in the order the user listed them. */
   DB.EXPENSE_CATEGORIES = [
     'Watchman Salary', 'Watchman Tips',
-    'Gas Bill', 'Electricity Bill', 'Water Bill', 'Internet Bill',
+    'Gas Bill', 'Electricity Bill', 'Water Bill', 'Internet Bill', 'Maintenance',
     'Nescafe 3 in 1', 'Toilet Paper', 'Facial Tissue', 'Surface Cleaner',
     'Surface Cleaning Sheets', 'Sugar Bags', 'Tea Bags', 'Dishwashing Liquid',
     /* Dry cleaning is NOT here — it is a per-booking charge (see CHARGE_KINDS). */
-    'Cleaning Sponge', 'Slippers',
+    'Cleaning Sponge', 'Garbage Bags', 'Slippers', 'Reed Diffuser',
     'AE to JD Currency Diff', 'Bank Transfer Fees', 'Other'
   ];
 
@@ -334,6 +378,16 @@ window.App = window.App || {};
     if (DB.getSetting('default_water') == null) DB.setSetting('default_water', '1');
     if (DB.getSetting('default_fruits') == null) DB.setSetting('default_fruits', '3');
     if (DB.getSetting('default_drycleaning') == null) DB.setSetting('default_drycleaning', '20');
+    if (DB.getSetting('statuses') == null) DB.setStatusOptions(DB.DEFAULT_STATUSES);
+    /* A database with no listing cannot accept a reservation, so a fresh one
+       starts with the property this was built for. Strictly once, flag and all:
+       a listing you delete must not reappear on the next boot. */
+    if (DB.getSetting('default_listing_seeded') == null) {
+      if (!DB.scalar('SELECT COUNT(*) AS n FROM listings')) {
+        DB.run('INSERT INTO listings (name) VALUES (?)', [DB.DEFAULT_LISTING]);
+      }
+      DB.setSetting('default_listing_seeded', '1');
+    }
     if (DB.getSetting('currency') == null) DB.setSetting('currency', 'JD');
     if (DB.getSetting('decimals') == null) DB.setSetting('decimals', '3');
     if (DB.getSetting('revenue_basis') == null) DB.setSetting('revenue_basis', 'start_date');
@@ -417,6 +471,43 @@ window.App = window.App || {};
     return DB.lastId();
   };
 
+  /** What a listing would take with it. Reservations CASCADE on delete, so this
+      is the difference between tidying up and losing a year of bookings. */
+  DB.listingUsage = function (id) {
+    return {
+      reservations: DB.scalar('SELECT COUNT(*) AS n FROM reservations WHERE listing_id = ?', [id]) || 0,
+      expenses: DB.scalar('SELECT COUNT(*) AS n FROM expenses WHERE listing_id = ?', [id]) || 0
+    };
+  };
+
+  /**
+   * Add a listing by name.
+   * @returns {{id:number, created:boolean}} `created` is false when the name was
+   *          already on file — the caller can say so instead of silently no-op'ing.
+   */
+  DB.addListing = function (name) {
+    name = String(name || '').trim();
+    if (!name) throw new Error('A listing needs a name.');
+    var r = DB.one('SELECT id FROM listings WHERE name = ?', [name]);
+    if (r) return { id: r.id, created: false };
+    DB.run('INSERT INTO listings (name) VALUES (?)', [name]);
+    return { id: DB.lastId(), created: true };
+  };
+
+  /**
+   * Remove a listing. Refused while it still holds reservations: the foreign key
+   * cascades, so this would delete every booking on it along with their charges.
+   * Expenses only lose their listing (ON DELETE SET NULL) and become shared.
+   */
+  DB.deleteListing = function (id) {
+    var use = DB.listingUsage(id);
+    if (use.reservations) {
+      throw new Error('It still has ' + use.reservations + ' reservation' +
+        (use.reservations === 1 ? '' : 's') + '. Delete or move those first.');
+    }
+    DB.run('DELETE FROM listings WHERE id = ?', [id]);
+  };
+
   /* ── reservations ─────────────────────────────────────────────────────── */
 
   DB.reservationExists = function (listingId, code) {
@@ -427,6 +518,14 @@ window.App = window.App || {};
   DB.findReservation = function (listingId, code) {
     return DB.one('SELECT * FROM reservations WHERE listing_id = ? AND confirmation_code = ?',
       [listingId, code]);
+  };
+
+  /** Is this confirmation code already used on this listing by another booking?
+      `exceptId` is the record being edited, which may of course keep its own. */
+  DB.codeTaken = function (listingId, code, exceptId) {
+    var r = DB.one('SELECT id FROM reservations WHERE listing_id = ? AND confirmation_code = ?',
+      [listingId, String(code)]);
+    return !!r && r.id !== exceptId;
   };
 
   /**
@@ -479,6 +578,26 @@ window.App = window.App || {};
         r.adults, r.children, r.infants, r.start_date, r.end_date, r.nights,
         r.booked_date, r.earnings, r.currency, r.imported_at]);
     return DB.lastId();
+  };
+
+  /**
+   * Save a reservation edited by hand.
+   *
+   * Wider than updateReservation (the importer's path) on purpose: it can also
+   * move the booking to a different listing and change its confirmation code,
+   * because a record typed in by hand may have either of them wrong. What it
+   * does NOT touch is imported_at — the record keeps saying where it came from —
+   * nor anything in booking_charges, so entered payments survive an edit.
+   */
+  DB.saveReservationDetails = function (id, r) {
+    DB.run(
+      'UPDATE reservations SET confirmation_code = ?, listing_id = ?, status = ?,' +
+      ' guest_name = ?, contact = ?, adults = ?, children = ?, infants = ?,' +
+      ' start_date = ?, end_date = ?, nights = ?, booked_date = ?, earnings = ?,' +
+      ' currency = ? WHERE id = ?',
+      [r.confirmation_code, r.listing_id, r.status, r.guest_name, r.contact,
+        r.adults, r.children, r.infants, r.start_date, r.end_date, r.nights,
+        r.booked_date, r.earnings, r.currency, id]);
   };
 
   DB.deleteReservation = function (id) {
@@ -550,6 +669,33 @@ window.App = window.App || {};
       ' (SELECT id FROM reservations WHERE ' + DB.CANCELLED_SQL + ')');
     var after = DB.scalar('SELECT COUNT(*) AS n FROM booking_charges') || 0;
     return before - after;
+  };
+
+  /**
+   * Give a booking its standard charges at the current default amounts.
+   * Optional kinds (dry cleaning) are left off until asked for on the booking,
+   * and a cancelled stay gets nothing at all. Shared by the CSV importer and by
+   * manual entry, so the two can never seed a booking differently.
+   *
+   * A kind that already has a row is left exactly as it is, so this only ever
+   * fills gaps: re-running it cannot overwrite an amount you set or clear a
+   * processed flag. That is what makes it safe to call again when a cancelled
+   * booking is brought back.
+   * @returns {number} charges created
+   */
+  DB.seedCharges = function (reservationId, nights, status) {
+    if (DB.isCancelledStatus(status)) return 0;
+    var have = DB.chargesFor(reservationId);
+    var n = 0;
+    DB.CHARGE_KINDS.forEach(function (kind) {
+      if (kind.optional || have[kind.key]) return;
+      var amt = DB.defaultChargeAmount(kind, nights);
+      if (amt > 0) {
+        DB.saveCharge(reservationId, kind.key, { amount: amt, is_paid: 0 });
+        n++;
+      }
+    });
+    return n;
   };
 
   DB.chargesFor = function (reservationId) {

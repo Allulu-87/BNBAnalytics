@@ -1,7 +1,7 @@
-/* BNB Analytics — reservations table + the per-booking cost editor.
-   Each booking carries three charge slots (watchman profit, water
-   bottles, fruits); every one has an amount, a date paid, and a
-   processed/not-processed flag. */
+/* BNB Analytics — reservations table, the per-booking cost editor, and the
+   add/edit form. Each booking carries a charge slot per DB.CHARGE_KINDS
+   (watchman profit, water bottles, fruits, and dry cleaning on request); every
+   one has an amount, a date paid, and a processed/not-processed flag. */
 window.App = window.App || {};
 window.App.Views = window.App.Views || {};
 
@@ -12,7 +12,20 @@ window.App.Views = window.App.Views || {};
 
   var sort = { by: 'start_date', dir: 'desc' };
   var openRow = null;      // reservation id whose editor is expanded
+  var editRes = null;      // 'new', or an id, while the add/edit form is open
   var localFilter = { status: '', paid: '', payout: '' };
+
+  /** The filter the table is currently showing. Shared by the view and by the
+      "did the booking I just added land in view?" check. */
+  function currentFilter() {
+    var f = App.state.filter();
+    f.sort = sort.by;
+    f.dir = sort.dir;
+    f.status = localFilter.status;
+    f.paid = localFilter.paid;
+    f.payout = localFilter.payout;
+    return f;
+  }
 
   function statusBadge(r) {
     return U.el('span', {
@@ -327,14 +340,24 @@ window.App.Views = window.App.Views || {};
     ]);
   }
 
-  function deleteButton(res) {
+  /** Edit and delete, at the foot of the detail panel.
+      Editing swaps this modal for the form one — two stacked modals would fight
+      over the backdrop and the scroll lock. */
+  function detailActions(res) {
     return U.el('div', { class: 'row', style: 'margin-top:.6rem' }, [
+      U.el('button', {
+        class: 'btn btn-sm', type: 'button',
+        title: 'Correct anything Airbnb got wrong, or fill in a booking taken elsewhere',
+        onclick: function () { editRes = res.id; App.refresh(); }
+      }, ['Edit details']),
+      U.el('span', { style: 'flex:1' }),
       U.el('button', {
         class: 'btn btn-sm btn-danger', type: 'button',
         onclick: function () {
           if (!confirm('Delete this reservation and its costs?\n\n' +
             res.confirmation_code + ' · ' + (res.guest_name || '') +
-            '\n\nIt will come back next time you import a CSV that contains it.')) return;
+            '\n\nIf it came from Airbnb it will come back the next time you ' +
+            'import a CSV that contains it.')) return;
           DB.deleteReservation(res.id);
           App.persist();
           openRow = null;
@@ -364,7 +387,7 @@ window.App.Views = window.App.Views || {};
         notesField(res, function () {
           paintRow(tr, DB.one('SELECT * FROM v_reservations WHERE id = ?', [res.id]) || res);
         }),
-        deleteButton(res)
+        detailActions(res)
       ]);
     }
 
@@ -452,7 +475,7 @@ window.App.Views = window.App.Views || {};
 
     return U.el('div', { class: 'detail-box' }, [
       factGrid(res), payout.el, rows, optionalHost, totals,
-      notesField(res, syncFigures), deleteButton(res)
+      notesField(res, syncFigures), detailActions(res)
     ]);
   }
 
@@ -517,20 +540,20 @@ window.App.Views = window.App.Views || {};
 
   App.Views.reservations = function (root) {
     U.clear(root);
-    var f = App.state.filter();
-    f.sort = sort.by;
-    f.dir = sort.dir;
-    f.status = localFilter.status;
-    f.paid = localFilter.paid;
-    f.payout = localFilter.payout;
-
+    var f = currentFilter();
     var rows = DB.reservations(f);
 
     /* local (view-specific) controls */
+    /* The managed list plus anything an import actually brought in, so a status
+       nobody chose is still filterable and a managed one is offered before its
+       first booking exists. */
+    var statusChoices = DB.statusOptions().concat(DB.statuses())
+      .filter(function (s, i, a) { return s && a.indexOf(s) === i; });
+
     var statusSel = U.el('select', {
       onchange: function () { localFilter.status = this.value; App.refresh(); }
     }, [U.el('option', { value: '', text: 'Any status' })].concat(
-      DB.statuses().map(function (st) {
+      statusChoices.map(function (st) {
         return U.el('option', { value: st, text: st, selected: localFilter.status === st });
       })));
 
@@ -571,6 +594,11 @@ window.App.Views = window.App.Views || {};
         U.el('p', { text: rows.length + ' shown · tap any row to record its costs and payout.' })
       ]),
       U.el('div', { class: 'spacer' }),
+      U.el('button', {
+        class: 'btn btn-primary', type: 'button',
+        title: 'Enter a booking that is not in an Airbnb export',
+        onclick: function () { openRow = null; editRes = 'new'; App.refresh(); }
+      }, ['Add reservation']),
       U.el('div', { class: 'field', style: 'flex:0 0 auto;min-width:150px' }, [statusSel]),
       U.el('div', { class: 'field', style: 'flex:0 0 auto;min-width:165px' }, [payoutSel]),
       U.el('div', { class: 'field', style: 'flex:0 0 auto;min-width:170px' }, [paidSel])
@@ -579,6 +607,7 @@ window.App.Views = window.App.Views || {};
     if (!rows.length) {
       card.appendChild(U.el('div', { class: 'empty', text: 'No reservations match these filters.' }));
       root.appendChild(card);
+      appendModal(root, null, null, null);   // "Add reservation" still has to work
       return;
     }
 
@@ -677,25 +706,39 @@ window.App.Views = window.App.Views || {};
     card.appendChild(U.el('div', { class: 'table-scroll' }, [table]));
     root.appendChild(card);
 
-    if (openRes) root.appendChild(reservationModal(openRes, openTr, bumpFoot));
+    appendModal(root, openRes, openTr, bumpFoot);
   };
+
+  /** At most one modal is ever up. The form wins when both are asked for, so
+      "Edit details" replaces the detail panel and returns to it when it closes. */
+  function appendModal(root, openRes, openTr, bumpFoot) {
+    if (editRes !== null) {
+      var target = editRes === 'new'
+        ? null
+        : DB.one('SELECT * FROM v_reservations WHERE id = ?', [editRes]);
+      if (editRes === 'new' || target) {
+        root.appendChild(formModal(target));
+        return;
+      }
+      editRes = null;          // it was deleted from under us
+    }
+    if (openRes) root.appendChild(reservationModal(openRes, openTr, bumpFoot));
+  }
 
   /* ── modal ────────────────────────────────────────────────────────────────
      Opening a reservation in a modal keeps it entirely independent of the
      reservations table: the panel is sized by the viewport, so nothing it holds
      can widen the table or get dragged into the table's sideways scroll. */
 
-  function closeModal() {
-    openRow = null;
-    App.refresh();
-  }
-
-  function reservationModal(res, tr, bumpFoot) {
-    var body = U.el('div', { class: 'modal-body' }, [detailBox(res, tr, bumpFoot)]);
-
+  /**
+   * Backdrop, panel, head and dismissal — shared by both modals so they cannot
+   * drift apart in behaviour.
+   * @param {{title, sub, label, body, onClose, dismissOnBackdrop}} opts
+   */
+  function modalShell(opts) {
     var closeBtn = U.el('button', {
       class: 'btn btn-icon', type: 'button', 'aria-label': 'Close',
-      onclick: closeModal
+      onclick: opts.onClose
     }, [U.el('span', {
       html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
         '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" ' +
@@ -704,29 +747,26 @@ window.App.Views = window.App.Views || {};
 
     var modal = U.el('div', {
       class: 'modal', role: 'dialog', 'aria-modal': 'true', tabindex: '-1',
-      'aria-label': 'Reservation ' + res.confirmation_code,
+      'aria-label': opts.label,
       // stop a click inside from reaching the backdrop's dismiss handler
       onclick: function (e) { e.stopPropagation(); }
     }, [
       U.el('div', { class: 'modal-head' }, [
         U.el('div', { class: 'mh-text' }, [
-          U.el('h2', { dir: 'auto', text: res.guest_name || res.confirmation_code }),
-          U.el('div', { class: 'mh-sub' }, [
-            res.confirmation_code + ' · ' + res.listing_name + ' · ' +
-            U.prettyDate(res.start_date) + ' → ' + U.prettyDate(res.end_date)
-          ])
+          U.el('h2', { dir: 'auto', text: opts.title }),
+          opts.sub ? U.el('div', { class: 'mh-sub' }, [opts.sub]) : null
         ]),
         closeBtn
       ]),
-      body
+      U.el('div', { class: 'modal-body' }, [opts.body])
     ]);
 
     var backdrop = U.el('div', {
       class: 'modal-backdrop',
-      onclick: closeModal,                       // tap outside to dismiss
+      onclick: opts.dismissOnBackdrop ? opts.onClose : null,
       onkeydown: function (e) {
         // bubbles up from anything focused inside, so no document listener to leak
-        if (e.key === 'Escape') { e.preventDefault(); closeModal(); }
+        if (e.key === 'Escape') { e.preventDefault(); opts.onClose(); }
       }
     }, [modal]);
 
@@ -734,5 +774,274 @@ window.App.Views = window.App.Views || {};
     setTimeout(function () { if (modal.isConnected !== false) modal.focus(); }, 0);
 
     return backdrop;
+  }
+
+  function closeModal() {
+    openRow = null;
+    App.refresh();
+  }
+
+  function reservationModal(res, tr, bumpFoot) {
+    return modalShell({
+      title: res.guest_name || res.confirmation_code,
+      sub: res.confirmation_code + ' · ' + res.listing_name + ' · ' +
+        U.prettyDate(res.start_date) + ' → ' + U.prettyDate(res.end_date),
+      label: 'Reservation ' + res.confirmation_code,
+      body: detailBox(res, tr, bumpFoot),
+      onClose: closeModal,
+      dismissOnBackdrop: true        // nothing here is unsaved; every field commits
+    });
+  }
+
+  /* ── adding and editing by hand ───────────────────────────────────────────
+     An Airbnb export is the usual source, but a booking taken outside it — or
+     one the export got wrong — has to be enterable too. The form writes exactly
+     the columns the importer writes, so Airbnb stays authoritative: re-importing
+     a CSV that carries the same confirmation code will update the record again.
+     Charges, payout and notes are never touched by either path. */
+
+  function formModal(res) {
+    var isNew = !res;
+    var dirty = false;
+
+    function close() {
+      if (dirty && !confirm(isNew
+        ? 'Discard this new reservation?'
+        : 'Discard the changes to this reservation?')) return;
+      editRes = null;
+      App.refresh();
+    }
+
+    /* ── listing and status: both picked from lists kept in Settings ─────── */
+
+    var listings = DB.listings();
+    var listingSel = U.el('select', { 'aria-label': 'Listing' },
+      listings.map(function (l) { return U.el('option', { value: l.id, text: l.name }); }));
+    if (res && res.listing_id) listingSel.value = String(res.listing_id);
+
+    /* The managed list, plus this booking's own status when it is not on it. An
+       import can bring back wording nobody chose, and merely opening such a
+       booking must not quietly re-label it. */
+    var statusOptions = DB.statusOptions();
+    var ownStatus = res && res.status ? String(res.status).trim() : '';
+    var unmanaged = ownStatus && statusOptions.indexOf(ownStatus) === -1;
+    var statusSel = U.el('select', { 'aria-label': 'Status' },
+      statusOptions.map(function (s) { return U.el('option', { value: s, text: s }); })
+        .concat(unmanaged
+          ? [U.el('option', { value: ownStatus, text: ownStatus + '  (from the import)' })]
+          : []));
+    statusSel.value = ownStatus ||
+      (statusOptions.indexOf('Confirmed') !== -1 ? 'Confirmed' : statusOptions[0]);
+
+    /* ── the rest of the fields ─────────────────────────────────────────── */
+
+    function textIn(value, placeholder, label, type) {
+      return U.el('input', {
+        type: type || 'text', value: value == null ? '' : value,
+        placeholder: placeholder, 'aria-label': label, dir: 'auto'
+      });
+    }
+
+    function numIn(value, label, step) {
+      return U.el('input', {
+        type: 'number', step: step || '1', min: '0', inputmode: 'decimal',
+        value: value == null ? '' : value, 'aria-label': label
+      });
+    }
+
+    var code = textIn(res && res.confirmation_code, 'HM1AB2CD3E', 'Confirmation code');
+
+    var guest = textIn(res && res.guest_name, 'Guest name', 'Guest name');
+    var contact = textIn(res && res.contact, 'Phone number', 'Contact', 'tel');
+
+    var adults = numIn(res ? res.adults : 1, 'Adults');
+    var children = numIn(res ? res.children : 0, 'Children');
+    var infants = numIn(res ? res.infants : 0, 'Infants');
+
+    var earnings = numIn(res ? U.round(res.earnings_raw, 3) : '', 'Earnings', '0.001');
+    var currency = textIn(res ? res.currency : U.currency, U.currency, 'Currency');
+
+    /* Nights are the gap between the dates — shown, not typed. Two fields that
+       can disagree about the same fact is one field too many, and the watchman
+       charge is priced off this one. */
+    var nightsOut = U.el('div', {
+      class: 'static-value', role: 'status', 'aria-label': 'Nights'
+    });
+
+    function nightCount() {
+      return U.nightsBetween(checkIn.value, checkOut.value);
+    }
+
+    function paintNights() {
+      var n = nightCount();
+      nightsOut.textContent = U.isISO(checkIn.value) && U.isISO(checkOut.value)
+        ? n + (n === 1 ? ' night' : ' nights')
+        : '—';
+    }
+
+    var checkIn = App.DP.attach(
+      textIn(res && res.start_date, '', 'Check-in date'),
+      { placeholder: 'Check-in', onPick: function () { dirty = true; paintNights(); } });
+    var checkOut = App.DP.attach(
+      textIn(res && res.end_date, '', 'Check-out date'),
+      { placeholder: 'Check-out', onPick: function () { dirty = true; paintNights(); } });
+    var booked = App.DP.attach(
+      textIn(res && res.booked_date, '', 'Date booked'),
+      { placeholder: 'Not recorded', onPick: function () { dirty = true; } });
+
+    paintNights();
+
+    /* ── save ───────────────────────────────────────────────────────────── */
+
+    function whole(input) {
+      var n = Math.round(U.parseNum(input.value));
+      return n > 0 ? n : 0;
+    }
+
+    function save() {
+      if (!listings.length) {
+        U.toast('Add a listing under Data & export → Settings first', true); return;
+      }
+      var codeVal = code.value.trim();
+      if (!codeVal) { U.toast('Enter the confirmation code', true); return; }
+
+      var listingId = parseInt(listingSel.value, 10);
+      if (!listingId) { U.toast('Pick the listing this booking is for', true); return; }
+
+      if (!U.isISO(checkIn.value)) { U.toast('Pick the check-in date', true); return; }
+      // required now that the night count is derived from it rather than typed
+      if (!U.isISO(checkOut.value)) { U.toast('Pick the check-out date', true); return; }
+      if (checkOut.value < checkIn.value) {
+        U.toast('Check-out cannot be before check-in', true); return;
+      }
+      if (U.parseNum(earnings.value) < 0) {
+        U.toast('Earnings cannot be negative', true); return;
+      }
+      if (DB.codeTaken(listingId, codeVal, res ? res.id : null)) {
+        U.toast('That confirmation code is already used on this listing', true); return;
+      }
+
+      var statusVal = statusSel.value.trim() || null;
+      var nights = nightCount();
+
+      /* Cancelling clears everything recorded against the booking — a cancelled
+         stay has no watchman, no water and no dues. Say so before doing it. */
+      if (res && !res.is_cancelled && DB.isCancelledStatus(statusVal)) {
+        var load = DB.cancelledChargeLoad(res.id);
+        if (load.n && !confirm(
+          'Marking this cancelled removes the ' + load.n + ' payment' +
+          (load.n === 1 ? '' : 's') + ' recorded against it (' +
+          U.fmtMoney(load.total, 3) + ').\n\nContinue?')) return;
+      }
+
+      var rec = {
+        confirmation_code: codeVal,
+        listing_id: listingId,
+        status: statusVal,
+        guest_name: guest.value.trim() || null,
+        contact: contact.value.trim() || null,
+        adults: whole(adults), children: whole(children), infants: whole(infants),
+        start_date: checkIn.value,
+        end_date: checkOut.value,
+        nights: nights,
+        booked_date: booked.value || null,
+        earnings: U.round(U.parseNum(earnings.value), 3),
+        currency: currency.value.trim().toUpperCase() || U.currency
+      };
+
+      if (res) {
+        DB.saveReservationDetails(res.id, rec);
+        DB.purgeCancelledCharges();
+        /* Brought back from cancelled: its charges were purged when it was
+           cancelled, so give it the standard ones again. seedCharges only fills
+           gaps, so an ordinary edit cannot disturb what is already recorded. */
+        if (res.is_cancelled) DB.seedCharges(res.id, rec.nights, rec.status);
+        App.persist();
+        editRes = null;
+        App.refresh();
+        U.toast('Reservation updated');
+        return;
+      }
+
+      rec.imported_at = null;            // entered by hand, not from an export
+      var id = DB.insertReservation(rec);
+      DB.seedCharges(id, rec.nights, rec.status);
+      App.persist();
+
+      /* A booking outside the current date window would otherwise vanish the
+         moment it is saved, which reads as "it didn't work". */
+      var shown = DB.reservations(currentFilter()).some(function (r) { return r.id === id; });
+      editRes = null;
+      openRow = shown ? id : null;       // open it, ready for its costs
+      App.refresh();
+      U.toast(shown ? 'Reservation added'
+        : 'Reservation added — widen the filters above to see it');
+    }
+
+    /* ── layout ─────────────────────────────────────────────────────────── */
+
+    function field(label, control, flex, hint) {
+      return U.el('div', { class: 'field', style: 'flex:' + flex }, [
+        U.el('label', { text: label }), control,
+        hint ? U.el('span', { class: 'small muted', text: hint }) : null
+      ]);
+    }
+
+    var form = U.el('div', null, [
+      listings.length ? null : U.el('div', { class: 'notice bad', style: 'margin:0 0 .7rem' }, [
+        'There are no listings yet. Add one under Data & export → Settings, ' +
+        'then come back — a booking has to belong to a property.'
+      ]),
+      U.el('div', { class: 'row', style: 'align-items:flex-end' }, [
+        field('Listing', listingSel, '2 1 220px'),
+        field('Confirmation code', code, '1 1 170px'),
+        field('Status', statusSel, '1 1 160px')
+      ]),
+      U.el('div', { class: 'row', style: 'align-items:flex-end;margin-top:.55rem' }, [
+        field('Guest', guest, '2 1 200px'),
+        field('Contact', contact, '1 1 160px')
+      ]),
+      U.el('div', { class: 'row', style: 'align-items:flex-end;margin-top:.55rem' }, [
+        field('Check-in', checkIn, '1 1 150px'),
+        field('Check-out', checkOut, '1 1 150px'),
+        field('Nights', nightsOut, '0 1 100px', 'from the dates'),
+        field('Booked', booked, '1 1 150px')
+      ]),
+      U.el('div', { class: 'row', style: 'align-items:flex-end;margin-top:.55rem' }, [
+        field('Earnings', earnings, '1 1 150px'),
+        field('Currency', currency, '0 1 90px'),
+        field('Adults', adults, '0 1 85px'),
+        field('Children', children, '0 1 85px'),
+        field('Infants', infants, '0 1 85px')
+      ]),
+      U.el('p', { class: 'small muted', style: 'margin:.75rem 0 0' }, [
+        isNew
+          ? 'Saved as a normal booking: it gets the standard per-booking charges, ' +
+            'and importing a CSV with this confirmation code will update it.'
+          : 'Only Airbnb’s own fields are here. The charges, the payout flag and ' +
+            'your notes are kept separately and are not affected by this.'
+      ]),
+      U.el('div', { class: 'row', style: 'margin-top:.8rem' }, [
+        U.el('span', { style: 'flex:1' }),
+        U.el('button', { class: 'btn', type: 'button', onclick: close }, ['Cancel']),
+        U.el('button', { class: 'btn btn-primary', type: 'button', onclick: save },
+          [isNew ? 'Add reservation' : 'Save changes'])
+      ])
+    ]);
+
+    // one listener for the lot, so an accidental dismissal can warn about losses
+    form.addEventListener('input', function () { dirty = true; });
+    form.addEventListener('change', function () { dirty = true; });
+
+    return modalShell({
+      title: isNew ? 'Add a reservation' : 'Edit reservation',
+      sub: isNew
+        ? 'For a booking that is not in an Airbnb export'
+        : res.confirmation_code + ' · ' + res.listing_name,
+      label: isNew ? 'Add a reservation' : 'Edit reservation ' + res.confirmation_code,
+      body: form,
+      onClose: close
+      // no dismissOnBackdrop: a stray tap outside must not throw away typing
+    });
   }
 })(window.App);
