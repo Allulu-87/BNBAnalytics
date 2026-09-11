@@ -184,6 +184,100 @@ window.App = window.App || {};
     };
   };
 
+  /* ── pagination ───────────────────────────────────────────────────────── */
+
+  U.PAGE_SIZES = [10, 25, 50, 100];
+
+  /**
+   * Page state for one table, with the chosen size remembered across sessions.
+   * @param {string} key  distinguishes the tables in storage
+   */
+  U.pageState = function (key) {
+    var size = U.PAGE_SIZES[0];
+    try {
+      var saved = parseInt(localStorage.getItem('bnb:page:' + key), 10);
+      if (U.PAGE_SIZES.indexOf(saved) !== -1) size = saved;
+    } catch (e) { /* private mode — the session default is fine */ }
+    return { key: key, page: 1, size: size, sig: null };
+  };
+
+  /**
+   * Slice `rows` for the current page.
+   *
+   * `state` is mutated: the page is clamped to what actually exists, so a filter
+   * that shortens the list can never strand you on an empty page past the end.
+   * Pass `sig` — anything that identifies the current filter and sort — and a
+   * change to it returns you to page 1, since a re-ordered list makes "page 3"
+   * mean something else entirely.
+   */
+  U.page = function (rows, state, sig) {
+    if (sig !== undefined && sig !== state.sig) {
+      if (state.sig !== null) state.page = 1;
+      state.sig = sig;
+    }
+    var size = state.size > 0 ? state.size : U.PAGE_SIZES[0];
+    var pages = Math.max(1, Math.ceil(rows.length / size));
+    if (!(state.page > 0)) state.page = 1;
+    if (state.page > pages) state.page = pages;
+
+    var from = (state.page - 1) * size;
+    return {
+      rows: rows.slice(from, from + size),
+      page: state.page, pages: pages, size: size, total: rows.length,
+      first: rows.length ? from + 1 : 0,
+      last: Math.min(from + size, rows.length)
+    };
+  };
+
+  /**
+   * The strip under a paged table: rows-per-page, position, prev/next.
+   * Returns null when everything already fits on one default-sized page —
+   * controls for a list that cannot be paged are just noise.
+   * @param {object}   p         the result of U.page
+   * @param {object}   state     the same state object, mutated on interaction
+   * @param {Function} onChange  re-render (typically App.refresh)
+   * @param {string}   noun      what is being counted, e.g. 'reservations'
+   */
+  U.pager = function (p, state, onChange, noun) {
+    if (p.total <= U.PAGE_SIZES[0] && p.pages <= 1) return null;
+
+    var sizeSel = U.el('select', {
+      'aria-label': 'Rows per page',
+      onchange: function () {
+        /* Keep the row you were looking at on screen instead of jumping to the
+           top — changing the page size is a zoom, not a navigation. */
+        var anchor = (state.page - 1) * p.size;
+        state.size = parseInt(this.value, 10) || U.PAGE_SIZES[0];
+        state.page = Math.floor(anchor / state.size) + 1;
+        try {
+          localStorage.setItem('bnb:page:' + state.key, String(state.size));
+        } catch (e) { /* ignore */ }
+        onChange();
+      }
+    }, U.PAGE_SIZES.map(function (n) {
+      return U.el('option', { value: n, text: n, selected: n === p.size });
+    }));
+
+    function step(delta, label, aria, disabled) {
+      return U.el('button', {
+        class: 'btn btn-sm', type: 'button', disabled: !!disabled, 'aria-label': aria,
+        onclick: function () { state.page = p.page + delta; onChange(); }
+      }, [label]);
+    }
+
+    return U.el('div', { class: 'pager', role: 'navigation', 'aria-label': 'Pagination' }, [
+      U.el('label', { class: 'pager-rows' }, ['Rows', sizeSel]),
+      U.el('span', {
+        class: 'pager-count',
+        text: p.first + '–' + p.last + ' of ' + p.total + ' ' + (noun || 'rows')
+      }),
+      U.el('span', { style: 'flex:1' }),
+      step(-1, '‹ Prev', 'Previous page', p.page <= 1),
+      U.el('span', { class: 'pager-at', text: 'Page ' + p.page + ' of ' + p.pages }),
+      step(1, 'Next ›', 'Next page', p.page >= p.pages)
+    ]);
+  };
+
   /* ── files ────────────────────────────────────────────────────────────── */
 
   U.download = function (filename, blob) {

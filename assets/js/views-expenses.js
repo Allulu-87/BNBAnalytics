@@ -12,6 +12,7 @@ window.App.Views = window.App.Views || {};
   var editing = null;              // expense id being edited, or null for "new"
   var localFilter = { category: '', paid: '' };
   var draft = null;                // preserved across re-render
+  var paging = U.pageState('expenses');
 
   function blankDraft() {
     return {
@@ -109,6 +110,10 @@ window.App.Views = window.App.Views || {};
       });
       App.persist();
       U.toast(editing ? 'Expense updated' : 'Expense added');
+      /* The log is newest-first, so a new entry belongs at the top — go there
+         rather than leaving you on page 5 wondering where it went. An edit
+         stays put, since you were already looking at the row. */
+      if (!editing) paging.page = 1;
       editing = null;
       draft = blankDraft();
       App.refresh();
@@ -162,6 +167,7 @@ window.App.Views = window.App.Views || {};
     f.category = localFilter.category;
     f.paid = localFilter.paid;
     var rows = DB.expenses(f);
+    var view = U.page(rows, paging, JSON.stringify(f));
     var total = rows.reduce(function (a, r) { return a + r.amount; }, 0);
     var unpaid = rows.reduce(function (a, r) { return a + (r.is_paid ? 0 : r.amount); }, 0);
 
@@ -184,7 +190,12 @@ window.App.Views = window.App.Views || {};
     card.appendChild(U.el('div', { class: 'card-head' }, [
       U.el('div', null, [
         U.el('h2', { text: 'Expense log' }),
-        U.el('p', { text: rows.length + ' entries · ' + U.fmtMoney(total, 2) + ' total, ' + U.fmtMoney(unpaid, 2) + ' unpaid.' })
+        U.el('p', {
+          text: (view.total > view.rows.length
+            ? 'Showing ' + view.first + '–' + view.last + ' of ' + view.total + ' entries'
+            : rows.length + ' entries') +
+            ' · ' + U.fmtMoney(total, 2) + ' total, ' + U.fmtMoney(unpaid, 2) + ' unpaid.'
+        })
       ]),
       U.el('div', { class: 'spacer' }),
       U.el('div', { class: 'field', style: 'flex:0 0 auto;min-width:160px' }, [catSel]),
@@ -205,7 +216,7 @@ window.App.Views = window.App.Views || {};
     ]));
 
     var tbody = U.el('tbody');
-    rows.forEach(function (r) {
+    view.rows.forEach(function (r) {
       tbody.appendChild(U.el('tr', null, [
         U.el('td', { text: U.prettyDate(r.expense_date) }),
         U.el('td', { text: r.category }),
@@ -248,15 +259,18 @@ window.App.Views = window.App.Views || {};
       ]));
     });
     table.appendChild(tbody);
+    // totals cover every matching entry, not just the page on screen
     table.appendChild(U.el('tfoot', null, [
       U.el('tr', null, [
-        U.el('td', { colspan: 4, text: 'Total' }),
+        U.el('td', { colspan: 4, text: 'Total of all ' + rows.length + ' matching' }),
         U.el('td', { class: 'num', text: U.fmtNum(total, 2) }),
         U.el('td', { colspan: 4, text: U.fmtMoney(unpaid, 2) + ' unpaid' })
       ])
     ]));
 
     card.appendChild(U.el('div', { class: 'table-scroll' }, [table]));
+    var pager = U.pager(view, paging, App.refresh, 'entries');
+    if (pager) card.appendChild(pager);
     root.appendChild(card);
   };
 })(window.App);

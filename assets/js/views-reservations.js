@@ -14,6 +14,7 @@ window.App.Views = window.App.Views || {};
   var openRow = null;      // reservation id whose editor is expanded
   var editRes = null;      // 'new', or an id, while the add/edit form is open
   var localFilter = { status: '', paid: '', payout: '' };
+  var paging = U.pageState('reservations');
 
   /** The filter the table is currently showing. Shared by the view and by the
       "did the booking I just added land in view?" check. */
@@ -542,6 +543,8 @@ window.App.Views = window.App.Views || {};
     U.clear(root);
     var f = currentFilter();
     var rows = DB.reservations(f);
+    // the filters and sort identify the list; a change to either returns to page 1
+    var view = U.page(rows, paging, JSON.stringify(f));
 
     /* local (view-specific) controls */
     /* The managed list plus anything an import actually brought in, so a status
@@ -591,7 +594,12 @@ window.App.Views = window.App.Views || {};
     card.appendChild(U.el('div', { class: 'card-head' }, [
       U.el('div', null, [
         U.el('h2', { text: 'Reservations' }),
-        U.el('p', { text: rows.length + ' shown · tap any row to record its costs and payout.' })
+        U.el('p', {
+          text: (view.total > view.rows.length
+            ? 'Showing ' + view.first + '–' + view.last + ' of ' + view.total
+            : view.total + ' shown') +
+            ' · tap any row to record its costs and payout.'
+        })
       ]),
       U.el('div', { class: 'spacer' }),
       U.el('button', {
@@ -632,7 +640,7 @@ window.App.Views = window.App.Views || {};
     var openRes = null, openTr = null;   // filled in by the loop below
 
     var tbody = U.el('tbody');
-    rows.forEach(function (r) {
+    view.rows.forEach(function (r) {
       var isOpen = openRow === r.id;
 
       /* Every row opens, cancelled included — the contact number and the rest of
@@ -684,9 +692,12 @@ window.App.Views = window.App.Views || {};
       class: 'small muted', text: U.fmtNum(totals.pending, 2) + ' pending'
     });
 
+    /* The footer totals every row the filters match, not just this page — a
+       running total of whichever ten rows you happen to be looking at would be
+       a number with no meaning. */
     table.appendChild(U.el('tfoot', null, [
       U.el('tr', null, [
-        U.el('td', { colspan: 5, text: 'Total of ' + rows.length + ' shown' }),
+        U.el('td', { colspan: 5, text: 'Total of all ' + rows.length + ' matching' }),
         U.el('td', { class: 'num', text: totals.nights }),
         U.el('td'),
         fEarnings, fAwaiting, fCosts, fNet, fPending
@@ -704,6 +715,8 @@ window.App.Views = window.App.Views || {};
     };
 
     card.appendChild(U.el('div', { class: 'table-scroll' }, [table]));
+    var pager = U.pager(view, paging, App.refresh, 'reservations');
+    if (pager) card.appendChild(pager);
     root.appendChild(card);
 
     appendModal(root, openRes, openTr, bumpFoot);
@@ -969,12 +982,18 @@ window.App.Views = window.App.Views || {};
       App.persist();
 
       /* A booking outside the current date window would otherwise vanish the
-         moment it is saved, which reads as "it didn't work". */
-      var shown = DB.reservations(currentFilter()).some(function (r) { return r.id === id; });
+         moment it is saved, which reads as "it didn't work". And the default
+         sort is by check-in, so even a matching one is rarely on page 1 —
+         go to whichever page it actually landed on. */
+      var all = DB.reservations(currentFilter());
+      var ix = -1;
+      for (var i = 0; i < all.length; i++) { if (all[i].id === id) { ix = i; break; } }
+      if (ix !== -1) paging.page = Math.floor(ix / paging.size) + 1;
+
       editRes = null;
-      openRow = shown ? id : null;       // open it, ready for its costs
+      openRow = ix === -1 ? null : id;    // open it, ready for its costs
       App.refresh();
-      U.toast(shown ? 'Reservation added'
+      U.toast(ix !== -1 ? 'Reservation added'
         : 'Reservation added — widen the filters above to see it');
     }
 
