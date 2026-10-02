@@ -13,10 +13,11 @@ window.App = window.App || {};
   };
 
   /** Per-booking charge kinds. `auto` rows get seeded on import. */
-  /* Per-booking charges. Each has a default amount held in `meta` under
-     `settingKey`, so the figures stay editable rather than hard-coded.
-     `perNight` multiplies by the stay length; `optional` means it is not applied
-     unless you ask for it on the booking. */
+  /* Per-booking charges. Every booking carries one row of each kind — including
+     a 0.000 one, which is how you record "there was none of this" rather than
+     leaving a gap that could equally mean "not entered yet". Each has a default
+     amount held in `meta` under `settingKey`, so the figures stay editable
+     rather than hard-coded; `perNight` multiplies by the stay length. */
   DB.CHARGE_KINDS = [
     {
       key: 'watchman', label: 'Watchman profit', short: 'Watchman',
@@ -32,7 +33,7 @@ window.App = window.App || {};
     },
     {
       key: 'drycleaning', label: 'Dry cleaning', short: 'Dry clean',
-      settingKey: 'default_drycleaning', hint: 'post checkout', optional: true
+      settingKey: 'default_drycleaning', hint: 'post checkout'
     }
   ];
 
@@ -363,11 +364,11 @@ window.App = window.App || {};
 
     SCHEMA_VIEWS.forEach(function (stmt) { DB.db.run(stmt); });
 
-    /* Sweep out zero-value rows. Earlier builds could store a 0.00 charge when
-       "payment processed" was ticked before an amount was typed; saveCharge no
-       longer creates them, and this clears any already on file. Idempotent, so
-       it is safe to run on every boot. */
-    DB.db.run('DELETE FROM booking_charges WHERE amount IS NULL OR amount <= 0');
+    /* Expenses still have to have money in them — an expense of nothing is not
+       an event that happened. Booking charges are deliberately NOT swept: there,
+       0.000 records "none of this on this booking", which is an answer worth
+       keeping. (Earlier builds did sweep them, which is why older bookings can
+       be missing rows; the editor fills them in as you touch them.) */
     DB.db.run('DELETE FROM expenses WHERE amount IS NULL OR amount <= 0');
 
     // a cancelled booking carries no charges and no dues
@@ -672,9 +673,8 @@ window.App = window.App || {};
   };
 
   /**
-   * Give a booking its standard charges at the current default amounts.
-   * Optional kinds (dry cleaning) are left off until asked for on the booking,
-   * and a cancelled stay gets nothing at all. Shared by the CSV importer and by
+   * Give a booking one row of every charge kind at the current default amounts.
+   * A cancelled stay gets nothing at all. Shared by the CSV importer and by
    * manual entry, so the two can never seed a booking differently.
    *
    * A kind that already has a row is left exactly as it is, so this only ever
@@ -688,12 +688,11 @@ window.App = window.App || {};
     var have = DB.chargesFor(reservationId);
     var n = 0;
     DB.CHARGE_KINDS.forEach(function (kind) {
-      if (kind.optional || have[kind.key]) return;
-      var amt = DB.defaultChargeAmount(kind, nights);
-      if (amt > 0) {
-        DB.saveCharge(reservationId, kind.key, { amount: amt, is_paid: 0 });
-        n++;
-      }
+      if (have[kind.key]) return;
+      // a default of 0 still gets its row — the editor needs one line per kind
+      DB.saveCharge(reservationId, kind.key,
+        { amount: DB.defaultChargeAmount(kind, nights), is_paid: 0 });
+      n++;
     });
     return n;
   };
@@ -706,9 +705,9 @@ window.App = window.App || {};
   };
 
   /** Upsert one charge.
-      A charge with no money in it is not a charge, so anything that resolves to
-      a non-positive amount is deleted rather than stored — ticking "processed"
-      or leaving a note before typing an amount must not create a 0.00 row. */
+      Zero is a real, meaningful amount here — "the watchman took nothing on this
+      booking" is an answer, not a blank — so a 0.000 row is stored like any
+      other. Only a negative amount is nonsense, and it is clamped away. */
   DB.saveCharge = function (reservationId, kind, patch) {
     var cur = DB.one('SELECT * FROM booking_charges WHERE reservation_id = ? AND kind = ?',
       [reservationId, kind]);
@@ -718,10 +717,7 @@ window.App = window.App || {};
       is_paid: patch.is_paid != null ? (patch.is_paid ? 1 : 0) : (cur ? cur.is_paid : 0),
       note: patch.note !== undefined ? patch.note : (cur ? cur.note : null)
     };
-    if (!(next.amount > 0)) {
-      if (cur) DB.run('DELETE FROM booking_charges WHERE id = ?', [cur.id]);
-      return;
-    }
+    if (!(next.amount > 0)) next.amount = 0;
     if (cur) {
       DB.run('UPDATE booking_charges SET amount = ?, date_paid = ?, is_paid = ?, note = ? WHERE id = ?',
         [next.amount, next.date_paid, next.is_paid, next.note, cur.id]);

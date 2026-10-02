@@ -108,14 +108,17 @@ window.App.Views = window.App.Views || {};
    */
   function chargeRow(res, kind, existing, onSaved) {
     var row = existing || { amount: 0, date_paid: null, is_paid: 0, note: null };
-    // every kind has a default now, so the "use N" shortcut applies to all
-    var expect = DB.defaultChargeAmount(kind, res.nights) || null;
+    // every kind has a default, so the "use N" shortcut applies to all of them
+    var expect = DB.defaultChargeAmount(kind, res.nights);
     var tr = U.el('tr', { class: row.amount > 0 ? 'is-set' : '' });
     var useBtn = null;
 
     var amount = U.el('input', {
       type: 'number', step: '0.001', min: '0', inputmode: 'decimal',
-      value: row.amount ? U.round(row.amount, 3) : '',
+      /* A stored 0 shows as 0, not as an empty box. The empty box is reserved
+         for "no row yet" — otherwise the two states look identical, which is
+         exactly the ambiguity recording a zero is meant to remove. */
+      value: existing ? U.round(existing.amount, 3) : '',
       placeholder: '0.000',
       'aria-label': kind.label + ' amount'
     });
@@ -138,19 +141,13 @@ window.App.Views = window.App.Views || {};
       var amt = U.parseNum(amount.value);
       var lower = kind.label.toLowerCase();
 
-      /* "Processed" asserts that money actually moved, and it is what gets
-         deducted from the booking — so it needs both an amount and the date it
-         was paid. Refuse the tick rather than inventing either. */
-      if (isPaid.checked && !(amt > 0)) {
-        U.toast('Enter an amount for ' + lower + ' before marking it processed', true);
-        isPaid.checked = false;
-      } else if (isPaid.checked && !U.isISO(datePaid.value)) {
+      /* "Processed" asserts that money moved on a particular day, so an amount
+         above zero needs the date it was paid. A zero charge is exempt: nothing
+         moved, there is no day to name, and ticking it simply says "settled,
+         there was none of this" — which is the whole point of allowing zero. */
+      if (isPaid.checked && amt > 0 && !U.isISO(datePaid.value)) {
         U.toast('Enter the date ' + lower + ' was paid before marking it processed', true);
         isPaid.checked = false;
-      }
-      // an amountless charge cannot exist at all, note or not
-      if (!(amt > 0) && note.value.trim()) {
-        U.toast('Enter an amount for ' + lower + ' first', true);
       }
 
       DB.saveCharge(res.id, kind.key, {
@@ -192,14 +189,12 @@ window.App.Views = window.App.Views || {};
       U.el('span', { class: 'hint', text: hint })
     ]);
 
-    if (expect != null) {
-      useBtn = U.el('button', {
-        class: 'cr-usebtn', type: 'button',
-        onclick: function () { amount.value = expect; commit(); }
-      }, ['use ' + U.fmtNum(expect, 3)]);
-      nameCell.appendChild(useBtn);
-      syncUseBtn();
-    }
+    useBtn = U.el('button', {
+      class: 'cr-usebtn', type: 'button',
+      onclick: function () { amount.value = expect; commit(); }
+    }, ['use ' + U.fmtNum(expect, 3)]);
+    nameCell.appendChild(useBtn);
+    syncUseBtn();
 
     [
       nameCell,
@@ -290,37 +285,6 @@ window.App.Views = window.App.Views || {};
     return { el: box, paintNote: paintNote };
   }
 
-  /**
-   * Opt-in switch for a charge that is off by default.
-   * Ticking it creates the charge at its default amount; unticking removes it
-   * (saveCharge deletes anything with a non-positive amount).
-   */
-  function optionalChargeToggle(res, kind, present, onChanged) {
-    var amount = DB.defaultChargeAmount(kind, res.nights);
-
-    var cb = U.el('input', {
-      type: 'checkbox',
-      'aria-label': kind.label + ' post checkout?'
-    });
-    cb.checked = !!present;
-
-    cb.addEventListener('change', function () {
-      DB.saveCharge(res.id, kind.key,
-        cb.checked ? { amount: amount, is_paid: 0 } : { amount: 0 });
-      App.persist();
-      onChanged();
-    });
-
-    return U.el('div', { class: 'payout-box optional-charge' }, [
-      U.el('label', { class: 'payout-check' }, [cb, kind.label + ' post checkout?']),
-      U.el('p', { class: 'payout-note' }, [
-        cb.checked
-          ? 'Charged at ' + U.fmtMoney(amount, 3) + ' — edit the amount in the table below.'
-          : 'Not charged. Tick to add ' + U.fmtMoney(amount, 3) + ' to this booking.'
-      ])
-    ]);
-  }
-
   /** Your own note on this booking. Saved on blur, patched in place. */
   function notesField(res, onChanged) {
     var ta = U.el('textarea', {
@@ -393,7 +357,6 @@ window.App.Views = window.App.Views || {};
     }
 
     var totals = U.el('div', { class: 'charge-total' });
-    var optionalHost = U.el('div');
 
     function stat(label, value, cls) {
       return U.el('span', null, [
@@ -442,40 +405,21 @@ window.App.Views = window.App.Views || {};
     table.appendChild(tb);
     var rows = U.el('div', { class: 'table-scroll' }, [table]);
 
-    /* Which rows exist depends on the optional toggles, so the body and the
-       toggles are rebuilt together — but only them. Rebuilding the whole view
-       would replay the modal's entry animation. */
-    function rebuildCharges() {
-      var charges = DB.chargesFor(res.id);
-
-      U.clear(tb);
-      DB.CHARGE_KINDS.forEach(function (kind) {
-        if (kind.optional && !charges[kind.key]) return;   // off until asked for
-        tb.appendChild(chargeRow(res, kind, charges[kind.key], syncFigures));
-      });
-
-      U.clear(optionalHost);
-      DB.CHARGE_KINDS.forEach(function (kind) {
-        if (!kind.optional) return;
-        optionalHost.appendChild(optionalChargeToggle(
-          res, kind, charges[kind.key],
-          function () { rebuildCharges(); syncFigures(); }
-        ));
-      });
-
-      /* Rebuilt rows carry fresh date inputs that need pickers. Only mount here
-         when we are already in the document — on the first build nothing is
-         attached yet, and mount() drains the queue, which would throw away the
-         pickers that render() is about to create. */
-      if (tb.isConnected) App.DP.mount();
-    }
+    /* One row per kind, always — a booking that had no dry cleaning shows a
+       dry cleaning line at 0.000 rather than no line, so "none" and "not filled
+       in yet" are never the same thing on screen. Bookings from before charges
+       were stored at zero can be missing rows; chargeRow falls back to a blank
+       one, and the first edit writes it. */
+    var charges = DB.chargesFor(res.id);
+    DB.CHARGE_KINDS.forEach(function (kind) {
+      tb.appendChild(chargeRow(res, kind, charges[kind.key], syncFigures));
+    });
 
     payout = payoutControl(res, syncFigures);
-    rebuildCharges();
     syncFigures();
 
     return U.el('div', { class: 'detail-box' }, [
-      factGrid(res), payout.el, rows, optionalHost, totals,
+      factGrid(res), payout.el, rows, totals,
       notesField(res, syncFigures), detailActions(res)
     ]);
   }

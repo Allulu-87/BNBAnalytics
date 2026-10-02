@@ -1,5 +1,5 @@
 /* BNB Analytics — the per-booking payments, analysed on their own.
-   Watchman profit, water bottles and fruits, broken down by day, month or year,
+   Watchman profit, water, fruits and dry cleaning, by day, month or year,
    with paid vs. still-owed alongside. Rendered as a Dashboard section. */
 window.App = window.App || {};
 window.App.Views = window.App.Views || {};

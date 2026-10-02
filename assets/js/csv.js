@@ -358,7 +358,7 @@ window.App = window.App || {};
 
   /**
    * Commit the rows from analyse().
-   * New reservations are inserted and get the auto per-night watchman charge.
+   * New reservations are inserted and seeded with one row of every charge kind.
    * Changed ones are overwritten field-by-field — their booking_charges rows are
    * never touched, so entered amounts, dates paid and processed flags survive.
    */

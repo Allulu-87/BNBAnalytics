@@ -506,7 +506,8 @@ window.App.Views = window.App.Views || {};
         U.el('h2', { text: 'Settings' }),
         U.el('p', {
           text: 'Default charge amounts. The watchman rate is per night; the ' +
-            'others are per booking. New imports start from these.'
+            'others are per booking. Every new booking starts with all four — ' +
+            'set one to 0 if it should start empty rather than pre-filled.'
         })
       ])
     ]));
@@ -543,7 +544,7 @@ window.App.Views = window.App.Views || {};
     ];
     flatKinds.forEach(function (k, i) {
       setFields.push(U.el('div', { class: 'field', style: 'flex:1 1 130px' }, [
-        U.el('label', { text: k.label + (k.optional ? ' (optional)' : '') }), flatInputs[i]
+        U.el('label', { text: k.label }), flatInputs[i]
       ]));
     });
     setFields.push(

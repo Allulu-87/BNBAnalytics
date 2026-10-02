@@ -17,7 +17,7 @@ window.App.Views = window.App.Views || {};
   function seededTotal(rec) {
     if (DB.isCancelledStatus(rec.status)) return 0;
     return DB.CHARGE_KINDS.reduce(function (a, kind) {
-      return kind.optional ? a : a + DB.defaultChargeAmount(kind, rec.nights);
+      return a + DB.defaultChargeAmount(kind, rec.nights);
     }, 0);
   }
 

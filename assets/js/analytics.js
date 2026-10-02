@@ -215,7 +215,9 @@ window.App = window.App || {};
       ' SUM(CASE WHEN bc.is_paid = 1 THEN bc.amount ELSE 0 END) AS paid,' +
       ' SUM(CASE WHEN bc.is_paid = 0 THEN bc.amount ELSE 0 END) AS unpaid, COUNT(*) AS n' +
       ' FROM booking_charges bc JOIN reservations r ON r.id = bc.reservation_id' +
-      rw.sql + ' GROUP BY bc.kind', rw.params
+      // a 0.000 charge means "there was none of this", so it is not a cost line
+      rw.sql + (rw.sql ? ' AND' : ' WHERE') + ' bc.amount > 0' +
+      ' GROUP BY bc.kind', rw.params
     ).forEach(function (r) {
       out.push({
         label: kindLabel[r.k] || r.k, group: 'Per booking',
