@@ -506,6 +506,15 @@ window.App = window.App || {};
         if (Store.mode === 'memory') {
           U.toast('Browser storage is unavailable — export a backup before you close this tab', true);
         }
+
+        /* A migration that adds charges changes what the dashboard says, so it
+           does not happen quietly. */
+        var m = DB.migrationReport;
+        if (m) {
+          U.toast('Filled in ' + m.charges + ' missing charge' +
+            (m.charges === 1 ? '' : 's') + ' across ' + m.bookings + ' booking' +
+            (m.bookings === 1 ? '' : 's') + ', at the Settings defaults');
+        }
       })
       .catch(function (e) {
         clearTimeout(watchdog);

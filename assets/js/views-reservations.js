@@ -110,16 +110,19 @@ window.App.Views = window.App.Views || {};
     var row = existing || { amount: 0, date_paid: null, is_paid: 0, note: null };
     // every kind has a default, so the "use N" shortcut applies to all of them
     var expect = DB.defaultChargeAmount(kind, res.nights);
-    var tr = U.el('tr', { class: row.amount > 0 ? 'is-set' : '' });
+
+    /* Never blank. A stored amount wins — including a stored 0, which is the
+       answer "there was none of this" and must read as 0 rather than as an empty
+       box. With no row at all the kind's default is offered instead, so dry
+       cleaning shows its 20 exactly as water shows its 1. */
+    var shown = U.round(existing ? existing.amount : expect, 3);
+
+    var tr = U.el('tr', { class: shown > 0 ? 'is-set' : '' });
     var useBtn = null;
 
     var amount = U.el('input', {
       type: 'number', step: '0.001', min: '0', inputmode: 'decimal',
-      /* A stored 0 shows as 0, not as an empty box. The empty box is reserved
-         for "no row yet" — otherwise the two states look identical, which is
-         exactly the ambiguity recording a zero is meant to remove. */
-      value: existing ? U.round(existing.amount, 3) : '',
-      placeholder: '0.000',
+      value: shown, placeholder: '0.000',
       'aria-label': kind.label + ' amount'
     });
     var datePaid = U.el('input', {

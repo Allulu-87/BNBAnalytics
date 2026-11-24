@@ -99,7 +99,8 @@ window.App = window.App || {};
   DB.EXPENSE_CATEGORIES = [
     'Watchman Salary', 'Watchman Tips',
     'Gas Bill', 'Electricity Bill', 'Water Bill', 'Internet Bill', 'Maintenance',
-    'Nescafe 3 in 1', 'Toilet Paper', 'Facial Tissue', 'Surface Cleaner',
+    'Nescafe 3 in 1', 'Toilet Paper', 'Facial Tissue', 'Shampoo', 'Soap',
+    'Surface Cleaner',
     'Surface Cleaning Sheets', 'Sugar Bags', 'Tea Bags', 'Dishwashing Liquid',
     /* Dry cleaning is NOT here — it is a per-booking charge (see CHARGE_KINDS). */
     'Cleaning Sponge', 'Garbage Bags', 'Slippers', 'Reed Diffuser',
@@ -319,12 +320,19 @@ window.App = window.App || {};
     });
   };
 
-  var SCHEMA_VERSION = 2;
+  var SCHEMA_VERSION = 3;
+
+  /** What the last migration did, for the app to report once it has booted.
+      Set by runMigrations; null when nothing moved. */
+  DB.migrationReport = null;
 
   /**
    * One-time data moves, keyed off meta.schema_version so they never re-run.
    * (Structural DDL above is `IF NOT EXISTS` / drop-and-recreate, so it is
    * safe every boot and does not belong here.)
+   *
+   * Runs AFTER the setting defaults are in place, because v3 prices charges off
+   * them.
    */
   function runMigrations() {
     var from = parseInt(DB.getSetting('schema_version') || '1', 10);
@@ -343,6 +351,22 @@ window.App = window.App || {};
         "FROM booking_charges bc JOIN reservations r ON r.id = bc.reservation_id " +
         "WHERE bc.kind = 'tips' AND bc.amount > 0");
       DB.db.run("DELETE FROM booking_charges WHERE kind = 'tips'");
+    }
+
+    /* v3 — every booking carries one row of each charge kind.
+       Earlier builds seeded only the kinds that existed at the time, and dry
+       cleaning only when asked for, so older bookings have gaps: a blank box
+       sitting next to filled-in ones, and a figure the totals never counted.
+       Fill the gaps at the current defaults. seedCharges only ever adds what is
+       missing, so nothing already entered is touched, and a cancelled booking
+       still gets nothing. */
+    if (from < 3) {
+      var added = 0, touched = 0;
+      DB.all('SELECT id, nights, status FROM reservations').forEach(function (r) {
+        var n = DB.seedCharges(r.id, r.nights, r.status);
+        if (n) { added += n; touched++; }
+      });
+      if (added) DB.migrationReport = { charges: added, bookings: touched };
     }
 
     if (from !== SCHEMA_VERSION) DB.setSetting('schema_version', String(SCHEMA_VERSION));
@@ -367,14 +391,13 @@ window.App = window.App || {};
     /* Expenses still have to have money in them — an expense of nothing is not
        an event that happened. Booking charges are deliberately NOT swept: there,
        0.000 records "none of this on this booking", which is an answer worth
-       keeping. (Earlier builds did sweep them, which is why older bookings can
-       be missing rows; the editor fills them in as you touch them.) */
+       keeping. (Earlier builds did sweep them — the v3 migration below puts the
+       missing rows back at their defaults.) */
     DB.db.run('DELETE FROM expenses WHERE amount IS NULL OR amount <= 0');
 
     // a cancelled booking carries no charges and no dues
     DB.purgeCancelledCharges();
 
-    runMigrations();
     if (DB.getSetting('watchman_rate') == null) DB.setSetting('watchman_rate', '2');
     if (DB.getSetting('default_water') == null) DB.setSetting('default_water', '1');
     if (DB.getSetting('default_fruits') == null) DB.setSetting('default_fruits', '3');
@@ -392,6 +415,10 @@ window.App = window.App || {};
     if (DB.getSetting('currency') == null) DB.setSetting('currency', 'JD');
     if (DB.getSetting('decimals') == null) DB.setSetting('decimals', '3');
     if (DB.getSetting('revenue_basis') == null) DB.setSetting('revenue_basis', 'start_date');
+
+    // last, so the data moves can read the defaults above
+    runMigrations();
+
     U.currency = DB.getSetting('currency') || 'JD';
     U.decimals = parseInt(DB.getSetting('decimals') || '3', 10);
   };
